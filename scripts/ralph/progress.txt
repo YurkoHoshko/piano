@@ -400,3 +400,23 @@ Task ID: 17
 - Tailwind translate-x-N for toggle switch animation with transition classes
 
 ---
+
+## 2026-01-18 - US-017: Admin Token Authentication
+Thread: https://ampcode.com/threads/T-019bd40f-09e9-715d-8083-d712e1336c64
+Task ID: 18
+- Generate random 16-byte token on application start using :crypto.strong_rand_bytes
+- Store token via Application.put_env(:piano, :admin_token, token)
+- Print token to console with clear message showing admin URL
+- Existing LiveView checks already validate against Application.get_env(:piano, :admin_token)
+- Token auth works: invalid/missing token redirects to / with error flash
+- mix compile --warnings-as-errors passes, mix test passes (4 tests)
+
+**Files changed:**
+- lib/piano/application.ex - Added setup_admin_token/0 function called at startup
+
+**Learnings for future iterations:**
+- :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false) creates URL-safe random tokens
+- Application.put_env can set runtime config that overrides compile-time config
+- IO.puts with heredoc (""") for multi-line formatted console output
+
+---

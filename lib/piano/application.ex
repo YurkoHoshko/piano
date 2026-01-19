@@ -5,6 +5,8 @@ defmodule Piano.Application do
 
   @impl true
   def start(_type, _args) do
+    setup_admin_token()
+
     children = [
       PianoWeb.Telemetry,
       Piano.Repo,
@@ -23,5 +25,22 @@ defmodule Piano.Application do
   def config_change(changed, _new, removed) do
     PianoWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  defp setup_admin_token do
+    token =
+      :crypto.strong_rand_bytes(16)
+      |> Base.url_encode64(padding: false)
+
+    Application.put_env(:piano, :admin_token, token)
+
+    IO.puts("""
+
+    ═══════════════════════════════════════════════════════════════
+    🔐 Admin Token Generated
+    ═══════════════════════════════════════════════════════════════
+    Access admin dashboard at: /admin/agents?token=#{token}
+    ═══════════════════════════════════════════════════════════════
+    """)
   end
 end
