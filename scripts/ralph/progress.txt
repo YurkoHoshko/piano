@@ -128,3 +128,29 @@ Task ID: 7
 - Skills are loaded dynamically at runtime, not compiled in - allows adding skills without restart
 
 ---
+
+## 2026-01-18 - US-007: GenStage Message Producer
+Thread: https://ampcode.com/threads/T-019bd3ed-8415-71c0-af1f-b9c8e99cdba9
+Task ID: 8
+- Added gen_stage ~> 1.2 dependency to mix.exs
+- Created Piano.Pipeline.MessageProducer GenStage module
+- Implemented enqueue/1 function to add message events via cast
+- Uses :queue for internal event buffering
+- Tracks pending demand and dispatches events when consumers request
+- Added to application supervisor (before PianoWeb.Endpoint)
+- mix compile passes
+
+**Files created:**
+- lib/piano/pipeline/message_producer.ex - GenStage producer with queue buffering
+
+**Files changed:**
+- mix.exs - Added gen_stage dependency
+- lib/piano/application.ex - Added MessageProducer to supervision tree
+
+**Learnings for future iterations:**
+- GenStage producer uses {:producer, state} tuple in init
+- Use :queue module for efficient FIFO event buffering
+- Pending demand must be tracked when queue is empty to dispatch later
+- handle_cast for async enqueue, handle_demand for consumer requests
+
+---

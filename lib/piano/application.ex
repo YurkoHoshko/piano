@@ -10,6 +10,7 @@ defmodule Piano.Application do
       Piano.Repo,
       {DNSCluster, query: Application.get_env(:piano, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Piano.PubSub},
+      Piano.Pipeline.MessageProducer,
       PianoWeb.Endpoint
     ]
 

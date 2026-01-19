@@ -43,7 +43,10 @@ defmodule Piano.MixProject do
       # Ash Framework
       {:ash, "~> 3.0"},
       {:ash_sqlite, "~> 0.2"},
-      {:ash_phoenix, "~> 2.0"}
+      {:ash_phoenix, "~> 2.0"},
+
+      # Pipeline
+      {:gen_stage, "~> 1.2"}
     ]
   end
 
