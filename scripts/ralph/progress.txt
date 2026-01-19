@@ -212,3 +212,31 @@ Task ID: 10
 - Ash.create returns {:ok, record} | {:error, changeset} - fits well with with chains
 
 ---
+
+## 2026-01-18 - US-011: Chat LiveView - Basic UI
+Thread: https://ampcode.com/threads/T-019bd3fc-70df-719e-a2b7-2518d6457afb
+Task ID: 12
+- Created PianoWeb.ChatLive LiveView at /chat route
+- Message list displaying user and agent messages with role-based styling
+- Text input with send button, disabled during thinking state
+- Integration with Piano.ChatGateway.handle_incoming/3 for message submission
+- PubSub subscription via Piano.Events.subscribe/1 for thread updates
+- Handles :processing_started, :response_ready, :processing_error events
+- Animated "Thinking..." indicator with bouncing dots
+- Updated app layout for full-height chat interface
+- mix compile --warnings-as-errors passes
+
+**Files created:**
+- lib/piano_web/live/chat_live.ex - LiveView with message list, input form, PubSub handling
+
+**Files changed:**
+- lib/piano_web/router.ex - Added /chat live route
+- lib/piano_web/components/layouts/app.html.heex - Updated for full-height layout
+
+**Learnings for future iterations:**
+- LiveView assigns update pattern: update(:messages, &(&1 ++ [new_message])) for appending
+- PubSub subscription should happen after first message creates the thread
+- phx-change on input for tracking value, phx-submit on form for submission
+- Use [animation-delay] classes for staggered bounce animations
+
+---
