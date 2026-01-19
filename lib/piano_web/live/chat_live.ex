@@ -92,6 +92,23 @@ defmodule PianoWeb.ChatLive do
      |> push_patch(to: ~p"/chat")}
   end
 
+  def handle_event("fork_thread", %{"message-id" => message_id}, socket) do
+    thread_id = socket.assigns.thread_id
+
+    case Ash.create(Thread, %{}, action: :fork, args: [source_thread_id: thread_id, fork_at_message_id: message_id]) do
+      {:ok, new_thread} ->
+        Events.unsubscribe(thread_id)
+
+        {:noreply,
+         socket
+         |> assign(:threads, load_threads())
+         |> push_patch(to: ~p"/chat?thread=#{new_thread.id}")}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to fork thread")}
+    end
+  end
+
   @impl true
   def handle_info({:processing_started, _message_id}, socket) do
     {:noreply, assign(socket, :thinking, true)}
@@ -193,7 +210,7 @@ defmodule PianoWeb.ChatLive do
             </div>
           <% else %>
             <%= for message <- @messages do %>
-              <.message_bubble message={message} />
+              <.message_bubble message={message} show_fork={@thread_id != nil} />
             <% end %>
           <% end %>
 
@@ -236,15 +253,31 @@ defmodule PianoWeb.ChatLive do
 
   defp message_bubble(assigns) do
     ~H"""
-    <div class={[
-      "max-w-[80%] rounded-lg px-4 py-3",
-      @message.role == :user && "bg-blue-600 text-white ml-auto",
-      @message.role == :agent && "bg-gray-700 text-white mr-auto"
-    ]}>
-      <div class="text-sm opacity-70 mb-1">
-        <%= if @message.role == :user, do: "You", else: "Assistant" %>
+    <div class="group relative">
+      <div class={[
+        "max-w-[80%] rounded-lg px-4 py-3",
+        @message.role == :user && "bg-blue-600 text-white ml-auto",
+        @message.role == :agent && "bg-gray-700 text-white mr-auto"
+      ]}>
+        <div class="text-sm opacity-70 mb-1">
+          <%= if @message.role == :user, do: "You", else: "Assistant" %>
+        </div>
+        <div class="whitespace-pre-wrap"><%= @message.content %></div>
       </div>
-      <div class="whitespace-pre-wrap"><%= @message.content %></div>
+      <button
+        :if={@show_fork}
+        phx-click="fork_thread"
+        phx-value-message-id={@message.id}
+        class={[
+          "absolute top-2 opacity-0 group-hover:opacity-100 transition-opacity",
+          "bg-gray-600 hover:bg-gray-500 text-white text-xs px-2 py-1 rounded",
+          @message.role == :user && "left-2",
+          @message.role == :agent && "right-2"
+        ]}
+        title="Fork from here"
+      >
+        ⑂ Fork
+      </button>
     </div>
     """
   end

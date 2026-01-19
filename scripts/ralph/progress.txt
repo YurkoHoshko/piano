@@ -265,3 +265,30 @@ Task ID: 13
 - Unsubscribe from old thread before subscribing to new to avoid duplicate events
 
 ---
+
+## 2026-01-18 - US-013: Thread Forking
+Thread: https://ampcode.com/threads/T-019bd400-23c7-764a-8acf-b117d4036872
+Task ID: 14
+- Added forked_from_thread_id and forked_from_message_id attributes to Thread resource
+- Created Thread.fork action that:
+  - Takes source_thread_id and fork_at_message_id arguments
+  - Sets title to "Fork of <original title>"
+  - Copies all messages up to and including the fork point via after_action change
+- Added fork button on each message bubble (shows on hover)
+- Fork button positioned on opposite side from message alignment
+- handle_event "fork_thread" creates fork and navigates to new thread
+- Generated and applied migration for forking columns
+- mix compile --warnings-as-errors passes
+
+**Files changed:**
+- lib/piano/chat/thread.ex - Added forking attributes and :fork action
+- lib/piano_web/live/chat_live.ex - Added fork button and fork_thread handler
+- priv/repo/migrations/*_add_forking_to_threads.exs - New migration
+
+**Learnings for future iterations:**
+- Ash after_action change receives (changeset, record, context) and must return {:ok, record} or {:error, reason}
+- Ash.create! for bang version that raises on error (useful in after_action loops)
+- Ash.Changeset.get_argument/2 retrieves action arguments in change functions
+- group-hover:opacity pattern in Tailwind for showing buttons on hover
+
+---
