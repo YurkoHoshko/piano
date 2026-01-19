@@ -478,3 +478,37 @@ Task ID: 20
 - Use receive/after for timeout handling in spawned response waiter
 
 ---
+
+## 2026-01-18 - US-027: End-to-End Test - Telegram Flow
+Thread: https://ampcode.com/threads/T-019bd415-7241-7398-89e0-327d28e152ea
+Task ID: 28
+- Created E2E test for Telegram flow using Mox for LLM and Telegram API mocking
+- Created Piano.Telegram.API behaviour wrapper for ExGram calls
+- Updated Piano.Telegram.Bot to use API wrapper instead of direct ExGram calls
+- Fixed bug: PubSub subscription must happen inside spawned process, not parent
+- Test simulates incoming Telegram message via Bot.handle({:text, text, msg}, nil)
+- Uses mock LLM response and mock Telegram API calls
+- Verifies user message created with source :telegram
+- Verifies agent response message created
+- Verifies ExGram.send_message called with response content
+- Added error handling test case
+- mix compile --warnings-as-errors passes, mix test passes (7 tests)
+
+**Files created:**
+- lib/piano/telegram/api.ex - Behaviour wrapper for ExGram API calls
+- test/piano/telegram_flow_test.exs - E2E test with 3 test cases
+
+**Files changed:**
+- lib/piano/telegram/bot.ex - Use API wrapper, fix PubSub subscription location
+- test/test_helper.exs - Added Piano.Telegram.API.Mock definition
+- config/test.exs - Configure Piano.Telegram.API.Mock for tests
+
+**Learnings for future iterations:**
+- Create behaviour wrappers for external API libraries to enable Mox testing
+- Application.get_env(:app, :impl_key, DefaultImpl) pattern works for any external dependency
+- PubSub subscribe must happen in the process that will receive - subscription is process-local
+- spawn(fn -> subscribe; receive_loop end) NOT subscribe; spawn(fn -> receive_loop end)
+- Use assert_receive with message passing from mock to avoid race conditions in tests
+- set_mox_global allows spawned processes to use the mocks
+
+---

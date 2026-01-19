@@ -17,3 +17,6 @@ config :phoenix_live_view, :enable_expensive_runtime_checks, true
 
 # Use mock LLM for tests
 config :piano, :llm_impl, Piano.LLM.Mock
+
+# Use mock Telegram API for tests
+config :piano, :telegram_api_impl, Piano.Telegram.API.Mock
