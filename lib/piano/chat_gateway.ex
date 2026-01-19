@@ -12,7 +12,8 @@ defmodule Piano.ChatGateway do
   @type metadata :: %{
           optional(:thread_id) => String.t(),
           optional(:agent_id) => String.t(),
-          optional(:title) => String.t()
+          optional(:title) => String.t(),
+          optional(:chat_id) => integer()
         }
 
   @doc """

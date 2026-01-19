@@ -449,3 +449,32 @@ Task ID: 19
 - Tesla is the HTTP adapter for ExGram, hackney is the underlying HTTP client
 
 ---
+
+## 2026-01-18 - US-019: Telegram Message Handling
+Thread: https://ampcode.com/threads/T-019bd413-6fa5-74ac-a8e7-31472ea5ced1
+Task ID: 20
+- Extended Piano.Telegram.Bot to forward text messages to ChatGateway
+- Source set to :telegram, metadata includes chat_id
+- Sends typing action immediately using ExGram.send_chat_action
+- Subscribes to PubSub for thread events after ChatGateway creates message
+- Spawns process to wait for :response_ready, :processing_started, :processing_error events
+- Sends typing action on :processing_started to keep indicator active
+- Sends agent response back via ExGram.send_message on :response_ready
+- Handles errors gracefully with user-friendly messages
+- 2-minute timeout for response with appropriate message
+- Updated ChatGateway metadata type to include optional chat_id
+- mix compile --warnings-as-errors passes, mix test passes (4 tests)
+
+**Files changed:**
+- lib/piano/telegram/bot.ex - Added message forwarding and response handling
+- lib/piano/chat_gateway.ex - Added chat_id to metadata type
+
+**Learnings for future iterations:**
+- ExGram.send_chat_action(chat_id, "typing", token: token) for typing indicator
+- ExGram.send_message(chat_id, text, token: token) for sending responses
+- Must pass token: option to ExGram methods when calling outside of handle context
+- PubSub subscription in handle then spawn process to receive events
+- Spawned process receives PubSub messages since subscription is process-local
+- Use receive/after for timeout handling in spawned response waiter
+
+---
