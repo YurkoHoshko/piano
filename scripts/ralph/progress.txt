@@ -512,3 +512,33 @@ Task ID: 28
 - set_mox_global allows spawned processes to use the mocks
 
 ---
+
+## 2026-01-18 - US-020: Telegram Thread Mapping
+Thread: https://ampcode.com/threads/T-019bd418-f248-753f-87f9-0c90211ca411
+Task ID: 21
+- Created Piano.Telegram.SessionMapper GenServer with ETS for chat-to-thread mappings
+- Provides get_or_create_thread/1, set_thread/2, reset_thread/1, get_thread/1
+- ETS table with :public and :read_concurrency for fast concurrent lookups
+- Added /newthread command to reset mapping and start fresh conversation
+- Added /thread <id> command to switch to existing thread
+- Updated Bot.handle({:text,...}) to use SessionMapper before ChatGateway
+- SessionMapper added to supervision tree in telegram_children/0
+- Tests updated to start_supervised!(SessionMapper) for ETS availability
+- mix compile --warnings-as-errors passes, mix test passes (7 tests)
+
+**Files created:**
+- lib/piano/telegram/session_mapper.ex - GenServer with ETS for chat-to-thread mapping
+
+**Files changed:**
+- lib/piano/telegram/bot.ex - Added command handlers and SessionMapper integration
+- lib/piano/application.ex - Added SessionMapper to telegram_children
+- test/piano/telegram_flow_test.exs - Start SessionMapper in test setup
+
+**Learnings for future iterations:**
+- ETS with :named_table and :public allows any process to read/write
+- :read_concurrency true optimizes for concurrent reads
+- GenServer just creates/owns ETS table, actual operations use :ets directly
+- Tests need start_supervised!(SessionMapper) to make ETS table available
+- ExGram commands registered with command("name") macro, handler matches {:command, :name, msg}
+
+---

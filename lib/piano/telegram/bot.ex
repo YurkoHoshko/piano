@@ -12,9 +12,12 @@ defmodule Piano.Telegram.Bot do
   require Logger
 
   alias Piano.{ChatGateway, Events}
-  alias Piano.Telegram.API
+  alias Piano.Chat.Thread
+  alias Piano.Telegram.{API, SessionMapper}
 
   command("start")
+  command("newthread")
+  command("thread")
 
   middleware(ExGram.Middleware.IgnoreUsername)
 
@@ -40,6 +43,32 @@ defmodule Piano.Telegram.Bot do
     answer(context, welcome_message)
   end
 
+  def handle({:command, :newthread, msg}, context) do
+    chat_id = msg.chat.id
+    SessionMapper.reset_thread(chat_id)
+    answer(context, "🆕 Started a new thread! Your next message will begin a fresh conversation.")
+  end
+
+  def handle({:command, :thread, %{text: text} = msg}, context) do
+    chat_id = msg.chat.id
+
+    case parse_thread_id(text) do
+      {:ok, thread_id} ->
+        case Ash.get(Thread, thread_id) do
+          {:ok, thread} ->
+            SessionMapper.set_thread(chat_id, thread.id)
+            title = thread.title || "Untitled"
+            answer(context, "✅ Switched to thread: #{title}")
+
+          {:error, _} ->
+            answer(context, "❌ Thread not found. Please check the ID and try again.")
+        end
+
+      :error ->
+        answer(context, "Usage: /thread <thread_id>\n\nExample: /thread abc123-def456-...")
+    end
+  end
+
   def handle({:command, _command, _msg}, context) do
     answer(context, "Unknown command. Send /start to see available options.")
   end
@@ -50,19 +79,24 @@ defmodule Piano.Telegram.Bot do
 
     API.send_chat_action(chat_id, "typing", token: token)
 
-    metadata = %{chat_id: chat_id}
+    case SessionMapper.get_or_create_thread(chat_id) do
+      {:ok, thread_id} ->
+        metadata = %{chat_id: chat_id, thread_id: thread_id}
 
-    case ChatGateway.handle_incoming(text, :telegram, metadata) do
-      {:ok, message} ->
-        thread_id = message.thread_id
+        case ChatGateway.handle_incoming(text, :telegram, metadata) do
+          {:ok, message} ->
+            spawn(fn ->
+              Events.subscribe(message.thread_id)
+              wait_for_response(chat_id, message.thread_id, token)
+            end)
 
-        spawn(fn ->
-          Events.subscribe(thread_id)
-          wait_for_response(chat_id, thread_id, token)
-        end)
+          {:error, reason} ->
+            Logger.error("Failed to handle Telegram message: #{inspect(reason)}")
+            API.send_message(chat_id, "Sorry, something went wrong. Please try again.", token: token)
+        end
 
       {:error, reason} ->
-        Logger.error("Failed to handle Telegram message: #{inspect(reason)}")
+        Logger.error("Failed to get/create thread for chat #{chat_id}: #{inspect(reason)}")
         API.send_message(chat_id, "Sorry, something went wrong. Please try again.", token: token)
     end
 
@@ -71,6 +105,16 @@ defmodule Piano.Telegram.Bot do
 
   def handle(_update, _context) do
     :ok
+  end
+
+  defp parse_thread_id(text) do
+    case String.split(text, " ", parts: 2) do
+      ["/thread", thread_id] when thread_id != "" ->
+        {:ok, String.trim(thread_id)}
+
+      _ ->
+        :error
+    end
   end
 
   defp wait_for_response(chat_id, thread_id, token) do

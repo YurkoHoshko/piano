@@ -38,6 +38,7 @@ defmodule Piano.Application do
       """)
 
       [
+        Piano.Telegram.SessionMapper,
         ExGram,
         {Piano.Telegram.Bot, [method: :polling, token: token]}
       ]
