@@ -42,4 +42,9 @@ config :logger, :console,
 
 config :phoenix, :json_library, Jason
 
+# LLM configuration (llama-swap backend)
+config :piano, :llm,
+  base_url: System.get_env("LLAMA_SWAP_URL", "http://localhost:8080"),
+  default_model: System.get_env("LLM_MODEL", "qwen3:32b")
+
 import_config "#{config_env()}.exs"

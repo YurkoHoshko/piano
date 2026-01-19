@@ -46,7 +46,10 @@ defmodule Piano.MixProject do
       {:ash_phoenix, "~> 2.0"},
 
       # Pipeline
-      {:gen_stage, "~> 1.2"}
+      {:gen_stage, "~> 1.2"},
+
+      # HTTP client (for LLM calls)
+      {:req, "~> 0.5"}
     ]
   end
 

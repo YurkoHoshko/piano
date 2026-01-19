@@ -154,3 +154,39 @@ Task ID: 8
 - handle_cast for async enqueue, handle_demand for consumer requests
 
 ---
+
+## 2026-01-18 - US-008: GenStage Agent Consumer
+Thread: https://ampcode.com/threads/T-019bd3ee-fb0b-7211-9148-94b116dd7d76
+Task ID: 9
+- Created Piano.Pipeline.AgentConsumer GenStage consumer module
+- Subscribes to MessageProducer with max_demand: 1
+- Loads agent config via Ash.get(Agent, agent_id)
+- Loads thread message history via Ash.read with :list_by_thread action
+- Builds system prompt from agent.system_prompt + enabled skills
+- Calls LLM via Piano.LLM.complete/3 with llama-swap OpenAI-compatible API
+- Handles tool calls: executes tools from ToolRegistry and continues conversation
+- Creates agent Message in database with response
+- Broadcasts lifecycle events: :processing_started, :response_ready, :processing_error
+- Added to application supervisor after MessageProducer
+- Created Piano.LLM module for llama-swap HTTP calls using Req
+- Created Piano.Events module for PubSub helpers
+- Added LLM config to config/config.exs (base_url, default_model)
+- mix compile --warnings-as-errors passes
+
+**Files created:**
+- lib/piano/pipeline/agent_consumer.ex - GenStage consumer with LLM integration
+- lib/piano/llm.ex - LLM client for llama-swap OpenAI-compatible API
+- lib/piano/events.ex - PubSub broadcast/subscribe helpers
+
+**Files changed:**
+- mix.exs - Added req ~> 0.5 dependency for HTTP calls
+- config/config.exs - Added :llm config with base_url and default_model
+- lib/piano/application.ex - Added AgentConsumer to supervision tree
+
+**Learnings for future iterations:**
+- GenStage consumer uses subscribe_to option in init to connect to producer
+- max_demand: 1 processes one message at a time (safe for LLM calls)
+- Tool call loop: execute tools, append results as tool role messages, call LLM again
+- Req.post with json: option auto-encodes body and sets Content-Type header
+
+---
