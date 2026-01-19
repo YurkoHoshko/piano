@@ -377,3 +377,26 @@ Task ID: 16
 - Placeholder LiveViews useful when router references them before implementation
 
 ---
+
+## 2026-01-18 - US-016: Admin Dashboard - Agent Configuration
+Thread: https://ampcode.com/threads/T-019bd40c-4da1-7215-a9e7-6b0bba16fcb8
+Task ID: 17
+- Expanded AgentEditLive with full configuration form
+- Form fields: name, model, description, system_prompt (all editable)
+- Tool toggles using ToolRegistry.list_available() with iOS-style switches
+- Skill toggles using SkillRegistry.list_available() with iOS-style switches
+- Toggles immediately update agent via Ash update_config action
+- Form submission also saves all basic fields via update_config action
+- Token auth preserved from placeholder implementation
+- mix compile --warnings-as-errors passes, mix test passes (4 tests)
+
+**Files changed:**
+- lib/piano_web/live/admin/agent_edit_live.ex - Full implementation with form and toggles
+
+**Learnings for future iterations:**
+- Toggle buttons with phx-click instantly update DB without form submission
+- Use Ash.Changeset.for_update(record, :action, attrs) |> Ash.update() pattern
+- to_form/1 creates a form from a plain map for simple form handling
+- Tailwind translate-x-N for toggle switch animation with transition classes
+
+---
