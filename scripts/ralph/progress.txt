@@ -1,0 +1,43 @@
+# Build Progress Log
+Started: 2026-01-18
+Feature: Piano - Multi-Agent Chat System
+Parent Task: 1
+
+## Codebase Patterns
+- Ash domains declared in config/config.exs under `:ash_domains` key
+- Use `ash.codegen <name>` to generate migrations, then `ash.migrate` to apply
+- AshSqlite.Repo requires otp_app: :piano
+- Spark.Formatter plugin in .formatter.exs for Ash DSL formatting
+
+---
+
+## 2026-01-18 - US-001: Project Setup and Ash Domain Structure
+Thread: https://ampcode.com/threads/T-019bd3e0-a8ce-7299-85c2-017af696cf1f
+Task ID: 2
+- Created Phoenix LiveView project structure from scratch
+- Added Ash Framework with SQLite (ash ~> 3.0, ash_sqlite ~> 0.2, ash_phoenix ~> 2.0)
+- Created Piano.Chat domain with Thread and Message resources
+- Created Piano.Agents domain with Agent resource
+- Generated and applied initial migrations
+- All acceptance criteria met: mix compile passes, migrations applied
+
+**Files created:**
+- lib/piano/application.ex - Application supervisor
+- lib/piano/repo.ex - AshSqlite repo
+- lib/piano/chat.ex - Chat domain
+- lib/piano/chat/thread.ex - Thread resource
+- lib/piano/chat/message.ex - Message resource  
+- lib/piano/agents.ex - Agents domain
+- lib/piano/agents/agent.ex - Agent resource
+- lib/piano_web.ex - Phoenix web module
+- lib/piano_web/endpoint.ex, router.ex, telemetry.ex
+- lib/piano_web/controllers/*, components/*
+- config/*.exs - Configuration files
+- assets/* - JS/CSS/Tailwind setup
+
+**Learnings for future iterations:**
+- When using pipe with custom functions that take JS struct, first param should be js, second the selector
+- ash.codegen generates migrations in _build, ash.migrate applies them
+- Test database lock errors are transient, tests still pass
+
+---
