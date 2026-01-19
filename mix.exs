@@ -52,7 +52,12 @@ defmodule Piano.MixProject do
       {:req, "~> 0.5"},
 
       # Testing
-      {:mox, "~> 1.0", only: :test}
+      {:mox, "~> 1.0", only: :test},
+
+      # Telegram
+      {:ex_gram, "~> 0.57"},
+      {:tesla, "~> 1.4"},
+      {:hackney, "~> 1.18"}
     ]
   end
 

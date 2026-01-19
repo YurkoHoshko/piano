@@ -420,3 +420,32 @@ Task ID: 18
 - IO.puts with heredoc (""") for multi-line formatted console output
 
 ---
+
+## 2026-01-18 - US-018: Telegram Bot Setup
+Thread: https://ampcode.com/threads/T-019bd410-d5d5-71e9-8cfb-63f48f1957f1
+Task ID: 19
+- Created Piano.Telegram.Bot module using ExGram framework
+- Added ex_gram ~> 0.57, tesla ~> 1.4, hackney ~> 1.18 dependencies
+- Bot token configured via TELEGRAM_BOT_TOKEN environment variable
+- Handles /start command with welcome message explaining available features
+- Handles unknown commands and text messages with placeholder responses
+- Bot conditionally added to supervision tree only when token is configured
+- Console message printed at startup indicating bot status (enabled/disabled)
+- mix compile --warnings-as-errors passes, mix test passes (4 tests)
+
+**Files created:**
+- lib/piano/telegram/bot.ex - ExGram bot with /start command handler
+
+**Files changed:**
+- mix.exs - Added ex_gram, tesla, hackney dependencies
+- config/config.exs - Added :telegram config and :ex_gram token config
+- lib/piano/application.ex - Added conditional telegram_children/0 to supervision tree
+
+**Learnings for future iterations:**
+- ExGram uses `use ExGram.Bot, name: __MODULE__` macro - do not add @impl annotations
+- command("start") macro declares /start command handler
+- handle/2 pattern matches on {:command, :start, msg} tuples for commands
+- Conditional supervision: return empty list from helper when feature disabled
+- Tesla is the HTTP adapter for ExGram, hackney is the underlying HTTP client
+
+---

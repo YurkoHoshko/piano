@@ -50,4 +50,12 @@ config :piano, :llm,
 # Admin token for dashboard access
 config :piano, :admin_token, System.get_env("PIANO_ADMIN_TOKEN", "piano_admin")
 
+# Telegram bot configuration
+config :piano, :telegram,
+  bot_token: System.get_env("TELEGRAM_BOT_TOKEN"),
+  enabled: System.get_env("TELEGRAM_BOT_TOKEN") != nil
+
+# ExGram configuration
+config :ex_gram, token: System.get_env("TELEGRAM_BOT_TOKEN")
+
 import_config "#{config_env()}.exs"
