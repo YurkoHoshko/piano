@@ -26,6 +26,10 @@ defmodule Piano.Chat.Thread do
 
   relationships do
     has_many :messages, Piano.Chat.Message
+
+    belongs_to :primary_agent, Piano.Agents.Agent do
+      allow_nil? true
+    end
   end
 
   actions do
@@ -33,6 +37,13 @@ defmodule Piano.Chat.Thread do
 
     create :create do
       accept [:title]
+
+      argument :primary_agent_id, :uuid, allow_nil?: true
+      change manage_relationship(:primary_agent_id, :primary_agent, type: :append)
+    end
+
+    read :list do
+      prepare build(sort: [inserted_at: :desc])
     end
 
     update :archive do

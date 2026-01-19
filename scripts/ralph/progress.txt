@@ -41,3 +41,21 @@ Task ID: 2
 - Test database lock errors are transient, tests still pass
 
 ---
+
+## 2026-01-18 - US-002: Thread Resource
+Thread: https://ampcode.com/threads/T-019bd3e7-bded-768c-98f2-a30d24813785
+Task ID: 3
+- Added belongs_to :primary_agent relationship (optional) to Thread
+- Added :list action with descending inserted_at sort
+- Updated :create action to accept primary_agent_id argument
+- Generated and applied migration for primary_agent_id column
+
+**Files changed:**
+- lib/piano/chat/thread.ex - Added relationship and actions
+- priv/repo/migrations/*_add_primary_agent_to_threads.exs - New migration
+
+**Learnings for future iterations:**
+- belongs_to relationships automatically add _id foreign key column
+- manage_relationship with type: :append works for optional belongs_to associations
+
+---
