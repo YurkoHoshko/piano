@@ -1,18 +1,22 @@
 defmodule PianoWeb.ChatLive do
   use PianoWeb, :live_view
 
+  alias Piano.Agents.Agent
   alias Piano.Chat.{Message, Thread}
   alias Piano.{ChatGateway, Events}
 
   @impl true
   def mount(_params, _session, socket) do
     threads = load_threads()
+    agents = load_agents()
 
     {:ok,
      assign(socket,
        threads: threads,
+       agents: agents,
        messages: [],
        thread_id: nil,
+       selected_agent_id: nil,
        input_value: "",
        thinking: false
      )}
@@ -38,6 +42,12 @@ defmodule PianoWeb.ChatLive do
       case socket.assigns.thread_id do
         nil -> %{}
         id -> %{thread_id: id}
+      end
+
+    metadata =
+      case socket.assigns.selected_agent_id do
+        nil -> metadata
+        agent_id -> Map.put(metadata, :agent_id, agent_id)
       end
 
     case ChatGateway.handle_incoming(content, :web, metadata) do
@@ -73,6 +83,14 @@ defmodule PianoWeb.ChatLive do
 
   def handle_event("update_input", %{"value" => value}, socket) do
     {:noreply, assign(socket, :input_value, value)}
+  end
+
+  def handle_event("select_agent", %{"agent_id" => ""}, socket) do
+    {:noreply, assign(socket, :selected_agent_id, nil)}
+  end
+
+  def handle_event("select_agent", %{"agent_id" => agent_id}, socket) do
+    {:noreply, assign(socket, :selected_agent_id, agent_id)}
   end
 
   def handle_event("select_thread", %{"id" => thread_id}, socket) do
@@ -135,13 +153,20 @@ defmodule PianoWeb.ChatLive do
     end
   end
 
+  defp load_agents do
+    case Ash.read(Agent, action: :list) do
+      {:ok, agents} -> agents
+      {:error, _} -> []
+    end
+  end
+
   defp load_thread(socket, thread_id) do
     if socket.assigns.thread_id do
       Events.unsubscribe(socket.assigns.thread_id)
     end
 
     case Ash.get(Thread, thread_id) do
-      {:ok, _thread} ->
+      {:ok, thread} ->
         messages = load_messages(thread_id)
         Events.subscribe(thread_id)
 
@@ -149,6 +174,7 @@ defmodule PianoWeb.ChatLive do
         |> assign(:thread_id, thread_id)
         |> assign(:messages, messages)
         |> assign(:thinking, false)
+        |> assign(:selected_agent_id, thread.primary_agent_id)
 
       {:error, _} ->
         socket
@@ -210,7 +236,7 @@ defmodule PianoWeb.ChatLive do
             </div>
           <% else %>
             <%= for message <- @messages do %>
-              <.message_bubble message={message} show_fork={@thread_id != nil} />
+              <.message_bubble message={message} show_fork={@thread_id != nil} agents={@agents} />
             <% end %>
           <% end %>
 
@@ -227,6 +253,20 @@ defmodule PianoWeb.ChatLive do
         </div>
 
         <div class="flex-shrink-0 border-t border-gray-700 p-4">
+          <div class="mb-3">
+            <select
+              phx-change="select_agent"
+              name="agent_id"
+              class="bg-gray-800 text-white rounded-lg px-3 py-2 border border-gray-600 focus:outline-none focus:border-blue-500"
+            >
+              <option value="">Default Agent</option>
+              <%= for agent <- @agents do %>
+                <option value={agent.id} selected={agent.id == @selected_agent_id}>
+                  <%= agent.name %>
+                </option>
+              <% end %>
+            </select>
+          </div>
           <form phx-submit="send_message" class="flex gap-3">
             <input
               type="text"
@@ -252,6 +292,18 @@ defmodule PianoWeb.ChatLive do
   end
 
   defp message_bubble(assigns) do
+    agent_name =
+      if assigns.message.role == :agent && assigns.message.agent_id do
+        case Enum.find(assigns.agents, fn a -> a.id == assigns.message.agent_id end) do
+          nil -> "Assistant"
+          agent -> agent.name
+        end
+      else
+        nil
+      end
+
+    assigns = assign(assigns, :agent_name, agent_name)
+
     ~H"""
     <div class="group relative">
       <div class={[
@@ -260,7 +312,7 @@ defmodule PianoWeb.ChatLive do
         @message.role == :agent && "bg-gray-700 text-white mr-auto"
       ]}>
         <div class="text-sm opacity-70 mb-1">
-          <%= if @message.role == :user, do: "You", else: "Assistant" %>
+          <%= if @message.role == :user, do: "You", else: @agent_name || "Assistant" %>
         </div>
         <div class="whitespace-pre-wrap"><%= @message.content %></div>
       </div>

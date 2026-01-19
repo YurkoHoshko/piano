@@ -292,3 +292,24 @@ Task ID: 14
 - group-hover:opacity pattern in Tailwind for showing buttons on hover
 
 ---
+
+## 2026-01-18 - US-014: Agent Selection in Chat
+Thread: https://ampcode.com/threads/T-019bd402-0f3b-7148-abb8-8179072564e4
+Task ID: 15
+- Added agent dropdown above message input showing all available agents
+- Load agents on mount via Ash.read(Agent, action: :list)
+- Track selected_agent_id in assigns, passed to ChatGateway.handle_incoming in metadata
+- Agent name shown on agent messages (looks up agent by message.agent_id)
+- When loading thread, set selected_agent_id to thread's primary_agent_id as default
+- "Default Agent" option uses fallback chain in ChatGateway
+- mix compile --warnings-as-errors passes
+
+**Files changed:**
+- lib/piano_web/live/chat_live.ex - Added agent dropdown, select_agent handler, agent name display
+
+**Learnings for future iterations:**
+- Pass agents list to function components via assigns for agent name lookups
+- Use Enum.find to lookup agent by ID in component without additional DB queries
+- Thread.primary_agent_id provides sensible default when loading existing threads
+
+---
