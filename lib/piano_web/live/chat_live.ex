@@ -184,7 +184,9 @@ defmodule PianoWeb.ChatLive do
   end
 
   defp load_messages(thread_id) do
-    case Ash.read(Message, action: :list_by_thread, args: [thread_id: thread_id]) do
+    query = Ash.Query.for_read(Message, :list_by_thread, %{thread_id: thread_id})
+
+    case Ash.read(query) do
       {:ok, messages} -> Enum.sort_by(messages, & &1.inserted_at, DateTime)
       {:error, _} -> []
     end

@@ -49,7 +49,10 @@ defmodule Piano.MixProject do
       {:gen_stage, "~> 1.2"},
 
       # HTTP client (for LLM calls)
-      {:req, "~> 0.5"}
+      {:req, "~> 0.5"},
+
+      # Testing
+      {:mox, "~> 1.0", only: :test}
     ]
   end
 

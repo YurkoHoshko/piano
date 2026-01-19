@@ -14,6 +14,9 @@ defmodule Piano.DataCase do
   end
 
   def setup_sandbox(_tags) do
+    Piano.Repo.query!("DELETE FROM messages")
+    Piano.Repo.query!("DELETE FROM threads")
+    Piano.Repo.query!("DELETE FROM agents")
     :ok
   end
 end

@@ -8,6 +8,8 @@ Parent Task: 1
 - Use `ash.codegen <name>` to generate migrations, then `ash.migrate` to apply
 - AshSqlite.Repo requires otp_app: :piano
 - Spark.Formatter plugin in .formatter.exs for Ash DSL formatting
+- Ash.read with action arguments: `Ash.Query.for_read(Resource, :action, %{arg: value}) |> Ash.read()`
+- Ash.create with action arguments: `Ash.Changeset.for_create(Resource, :action, %{attrs}) |> Ash.create!()`
 
 ---
 
@@ -311,5 +313,41 @@ Task ID: 15
 - Pass agents list to function components via assigns for agent name lookups
 - Use Enum.find to lookup agent by ID in component without additional DB queries
 - Thread.primary_agent_id provides sensible default when loading existing threads
+
+---
+
+## 2026-01-18 - US-026: End-to-End Test - Web Chat Flow
+Thread: https://ampcode.com/threads/T-019bd404-f2a3-77ae-8681-93fae9251181
+Task ID: 27
+- Created E2E test for web chat flow using Mox for LLM mocking
+- Test creates agent, calls ChatGateway.handle_incoming, verifies user message created
+- Verifies agent response message created from mocked LLM
+- Verifies PubSub events broadcast (processing_started, response_ready)
+- Added Mox dependency to mix.exs for testing
+- Refactored Piano.LLM to use behaviour pattern for mockability
+- Fixed Ash.read action argument syntax: use Ash.Query.for_read/3 instead of args: option
+- Updated DataCase to clean up database between tests
+- mix test passes (4 tests, 0 failures)
+
+**Files created:**
+- test/piano/chat_flow_test.exs - E2E test with 3 test cases
+
+**Files changed:**
+- mix.exs - Added mox ~> 1.0 dependency
+- lib/piano/llm.ex - Refactored to use behaviour pattern with Piano.LLM.Impl
+- config/test.exs - Configure Piano.LLM.Mock for tests
+- test/test_helper.exs - Define Mox mock for LLM
+- test/support/data_case.ex - Add database cleanup between tests
+- lib/piano/pipeline/agent_consumer.ex - Fixed Ash.read syntax
+- lib/piano_web/live/chat_live.ex - Fixed Ash.read syntax
+- lib/piano/chat/thread.ex - Fixed Ash.read and Ash.create syntax
+
+**Learnings for future iterations:**
+- Ash 3.0 requires Ash.Query.for_read(Resource, :action, %{arg: value}) for read actions with arguments
+- Ash.Changeset.for_create(Resource, :action, %{attrs}) for create actions with arguments
+- Mox requires behaviour module - use @callback in main module, delegate to impl()
+- Application.get_env(:app, :impl_key, DefaultImpl) pattern for test injection
+- set_mox_global and verify_on_exit! for async: false tests with GenStage
+- Process.sleep needed to wait for GenStage consumer to process messages
 
 ---

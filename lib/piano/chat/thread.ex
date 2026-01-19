@@ -82,7 +82,10 @@ defmodule Piano.Chat.Thread do
         source_thread_id = Ash.Changeset.get_argument(changeset, :source_thread_id)
         fork_at_message_id = Ash.Changeset.get_argument(changeset, :fork_at_message_id)
 
-        case Ash.read(Piano.Chat.Message, action: :list_by_thread, args: [thread_id: source_thread_id]) do
+        query =
+          Ash.Query.for_read(Piano.Chat.Message, :list_by_thread, %{thread_id: source_thread_id})
+
+        case Ash.read(query) do
           {:ok, messages} ->
             sorted = Enum.sort_by(messages, & &1.inserted_at, DateTime)
 
@@ -99,11 +102,16 @@ defmodule Piano.Chat.Thread do
               end
 
             Enum.each(messages_to_copy, fn msg ->
-              Ash.create!(Piano.Chat.Message,
-                %{content: msg.content, role: msg.role, source: msg.source},
-                action: :create,
-                args: [thread_id: new_thread.id, agent_id: msg.agent_id]
-              )
+              changeset =
+                Ash.Changeset.for_create(Piano.Chat.Message, :create, %{
+                  content: msg.content,
+                  role: msg.role,
+                  source: msg.source,
+                  thread_id: new_thread.id,
+                  agent_id: msg.agent_id
+                })
+
+              Ash.create!(changeset)
             end)
 
             {:ok, new_thread}
