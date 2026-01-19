@@ -240,3 +240,28 @@ Task ID: 12
 - Use [animation-delay] classes for staggered bounce animations
 
 ---
+
+## 2026-01-18 - US-012: Thread Switching in Chat UI
+Thread: https://ampcode.com/threads/T-019bd3fe-6b12-76fb-9d5c-a2737ea7f9b9
+Task ID: 13
+- Added sidebar showing all threads with title and timestamp
+- Threads loaded on mount via Ash.read(Thread, action: :list)
+- Click on thread navigates via push_patch to /chat?thread=<id>
+- handle_params loads messages for selected thread and subscribes to PubSub
+- "New Thread" button clears state and navigates to /chat
+- Added Events.unsubscribe/1 to properly clean up subscriptions on thread switch
+- Empty state shows helpful message when no thread selected
+- Threads list refreshes when new thread created
+- mix compile --warnings-as-errors passes
+
+**Files changed:**
+- lib/piano_web/live/chat_live.ex - Added sidebar, handle_params, thread selection
+- lib/piano/events.ex - Added unsubscribe/1 function
+
+**Learnings for future iterations:**
+- handle_params receives URL params and is called on mount and push_patch
+- push_patch navigates within same LiveView, updating URL without full reload
+- Ash.read with args: [key: value] passes arguments to action filters
+- Unsubscribe from old thread before subscribing to new to avoid duplicate events
+
+---

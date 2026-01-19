@@ -14,6 +14,14 @@ defmodule Piano.Events do
   end
 
   @doc """
+  Unsubscribes from events for a specific thread.
+  """
+  @spec unsubscribe(String.t()) :: :ok
+  def unsubscribe(thread_id) do
+    Phoenix.PubSub.unsubscribe(@pubsub, topic(thread_id))
+  end
+
+  @doc """
   Broadcasts an event for a specific thread.
   """
   @spec broadcast(String.t(), term()) :: :ok | {:error, term()}
