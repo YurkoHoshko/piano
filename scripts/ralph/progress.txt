@@ -59,3 +59,30 @@ Task ID: 3
 - manage_relationship with type: :append works for optional belongs_to associations
 
 ---
+
+## 2026-01-18 - US-003: Message Resource  
+Thread: https://ampcode.com/threads/T-019bd3e9-3e73-703e-9bdc-6221f5e26cf9
+Task ID: 4
+- Verified Message resource already fully implemented in US-001
+- Has all required attributes: id, content, role, source, inserted_at
+- Has belongs_to :thread (required) and belongs_to :agent (optional)
+- Has actions: :read, :create, :list_by_thread
+- mix compile passes
+
+**Status:** Already complete from initial setup, marked as done.
+
+---
+
+## 2026-01-18 - US-004: Agent Resource
+Thread: https://ampcode.com/threads/T-019bd3e9-3e73-703e-9bdc-6221f5e26cf9
+Task ID: 5
+- Added :list action with ascending inserted_at sort
+- Created priv/repo/seeds.exs with default agent seed
+- Default agent: "Assistant" with model "qwen3:32b"
+- mix compile passes, seed runs successfully
+
+**Files changed:**
+- lib/piano/agents/agent.ex - Added :list action
+- priv/repo/seeds.exs - New seed file for default agent
+
+---

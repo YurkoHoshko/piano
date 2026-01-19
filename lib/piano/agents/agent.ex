@@ -47,6 +47,10 @@ defmodule Piano.Agents.Agent do
       accept [:name, :description, :model, :system_prompt, :enabled_tools, :enabled_skills]
     end
 
+    read :list do
+      prepare build(sort: [inserted_at: :asc])
+    end
+
     update :update_config do
       accept [:name, :description, :model, :system_prompt, :enabled_tools, :enabled_skills]
     end
