@@ -190,3 +190,25 @@ Task ID: 9
 - Req.post with json: option auto-encodes body and sets Content-Type header
 
 ---
+
+## 2026-01-18 - US-009: Chat Gateway
+Thread: https://ampcode.com/threads/T-019bd3fa-de4a-72de-8b18-af943aee71da
+Task ID: 10
+- Created Piano.ChatGateway module as entry point for incoming messages
+- Implemented handle_incoming/3 function with content, source, metadata parameters
+- Resolves thread: creates new if thread_id not provided, fetches existing otherwise
+- Resolves agent: uses provided agent_id, falls back to thread's primary_agent, then default agent
+- Creates user Message via Ash with :create action
+- Enqueues event to MessageProducer with thread_id, message_id, agent_id
+- Returns {:ok, message} or {:error, reason}
+- mix compile --warnings-as-errors passes
+
+**Files created:**
+- lib/piano/chat_gateway.ex - Chat gateway with handle_incoming/3
+
+**Learnings for future iterations:**
+- Gateway pattern centralizes message intake from multiple channels (web, telegram)
+- Fallback chain for agent resolution: explicit -> thread's primary_agent -> first available
+- Ash.create returns {:ok, record} | {:error, changeset} - fits well with with chains
+
+---
