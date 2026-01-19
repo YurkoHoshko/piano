@@ -44,8 +44,8 @@ config :phoenix, :json_library, Jason
 
 # LLM configuration (llama-swap backend)
 config :piano, :llm,
-  base_url: System.get_env("LLAMA_SWAP_URL", "http://localhost:8080"),
-  default_model: System.get_env("LLM_MODEL", "qwen3:32b")
+  base_url: System.get_env("LLAMA_SWAP_URL", "http://localhost:8000"),
+  default_model: System.get_env("LLM_MODEL", "gpt-oss-20b")
 
 # Admin token for dashboard access
 config :piano, :admin_token, System.get_env("PIANO_ADMIN_TOKEN", "piano_admin")

@@ -22,3 +22,8 @@ erl_crash.dump
 # Ignore package tarball (built via "mix hex.build").
 piano-*.tar
 
+# SQLite database files
+*.db
+*.db-shm
+*.db-wal
+

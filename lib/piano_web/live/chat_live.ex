@@ -81,7 +81,7 @@ defmodule PianoWeb.ChatLive do
     {:noreply, socket}
   end
 
-  def handle_event("update_input", %{"value" => value}, socket) do
+  def handle_event("update_input", %{"message" => value}, socket) do
     {:noreply, assign(socket, :input_value, value)}
   end
 
