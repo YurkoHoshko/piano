@@ -106,3 +106,25 @@ Task ID: 6
 - bash tool uses System.cmd with sh -c for portable command execution
 
 ---
+
+## 2026-01-18 - US-006: Skill Loader
+Thread: https://ampcode.com/threads/T-019bd3ec-7e3b-750f-b21f-b001baae68b5
+Task ID: 7
+- Created Piano.Agents.SkillRegistry module
+- Scans `.agents/skills/` directory for `.md` files
+- Each skill file becomes a prompt snippet keyed by filename (without .md extension)
+- Implemented list_available/0 to return all skill names
+- Implemented get_prompts/1 to concatenate prompt text for enabled skills
+- Implemented load_skill/1 helper to read individual skill files
+- Created `.agents/skills/` directory
+- mix compile passes
+
+**Files created:**
+- lib/piano/agents/skill_registry.ex - Skill registry with directory scanning
+- .agents/skills/ - Directory for skill markdown files
+
+**Learnings for future iterations:**
+- File.ls returns {:error, _} for non-existent directories - handle gracefully with empty list
+- Skills are loaded dynamically at runtime, not compiled in - allows adding skills without restart
+
+---
