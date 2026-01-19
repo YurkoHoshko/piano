@@ -86,3 +86,23 @@ Task ID: 5
 - priv/repo/seeds.exs - New seed file for default agent
 
 ---
+
+## 2026-01-18 - US-005: Tool Registry
+Thread: https://ampcode.com/threads/T-019bd3eb-3c67-71cc-b469-ef8c83782a64
+Task ID: 6
+- Created Piano.Agents.ToolRegistry module
+- Defined 4 tools: read_file, create_file, edit_file, bash
+- Each tool has: name, description, parameters schema (JSON Schema format), callback function
+- Implemented get_tools/1 to return tool definitions for enabled tool names
+- Implemented list_available/0 to return all tool names
+- All tool callbacks handle errors gracefully
+
+**Files created:**
+- lib/piano/agents/tool_registry.ex - Tool registry with 4 tools and callbacks
+
+**Learnings for future iterations:**
+- Tool parameters use JSON Schema format for OpenAI-compatible tool definitions
+- Callbacks return {:ok, result} | {:error, reason} tuples for consistent handling
+- bash tool uses System.cmd with sh -c for portable command execution
+
+---
