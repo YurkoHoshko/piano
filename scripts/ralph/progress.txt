@@ -351,3 +351,29 @@ Task ID: 27
 - Process.sleep needed to wait for GenStage consumer to process messages
 
 ---
+
+## 2026-01-18 - US-015: Admin Dashboard - Agent List
+Thread: https://ampcode.com/threads/T-019bd40a-2877-71e9-91cb-5c1975b91c96
+Task ID: 16
+- Created PianoWeb.Admin.AgentListLive at /admin/agents
+- Lists all agents with name, model, description, enabled tools/skills count
+- Edit link navigates to /admin/agents/:id with token preserved
+- Protected by token (query param or session) - default: piano_admin
+- Created placeholder AgentEditLive for next task
+- Added admin_token config to config.exs
+
+**Files created:**
+- lib/piano_web/live/admin/agent_list_live.ex - Agent list LiveView with token auth
+- lib/piano_web/live/admin/agent_edit_live.ex - Placeholder for edit form
+
+**Files changed:**
+- lib/piano_web/router.ex - Added /admin/agents and /admin/agents/:id routes
+- config/config.exs - Added :admin_token config
+
+**Learnings for future iterations:**
+- Token auth can be done in mount by checking params["token"] || session["admin_token"]
+- Pass token via query param when navigating between admin pages
+- Application.get_env(:piano, :admin_token, "piano_admin") for configurable tokens
+- Placeholder LiveViews useful when router references them before implementation
+
+---

@@ -47,4 +47,7 @@ config :piano, :llm,
   base_url: System.get_env("LLAMA_SWAP_URL", "http://localhost:8080"),
   default_model: System.get_env("LLM_MODEL", "qwen3:32b")
 
+# Admin token for dashboard access
+config :piano, :admin_token, System.get_env("PIANO_ADMIN_TOKEN", "piano_admin")
+
 import_config "#{config_env()}.exs"

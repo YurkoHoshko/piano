@@ -20,4 +20,11 @@ defmodule PianoWeb.Router do
     get "/", PageController, :home
     live "/chat", ChatLive
   end
+
+  scope "/admin", PianoWeb.Admin do
+    pipe_through :browser
+
+    live "/agents", AgentListLive
+    live "/agents/:id", AgentEditLive
+  end
 end
