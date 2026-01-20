@@ -41,8 +41,8 @@ defmodule Piano.MixProject do
       {:dns_cluster, "~> 0.1.1"},
       {:bandit, "~> 1.5"},
 
-      # Ash Framework
-      {:ash, "~> 3.0"},
+      # Ash Framework (pinned < 3.13.0 for splode 0.2.x compatibility with req_llm)
+      {:ash, "~> 3.0 and < 3.13.0"},
       {:ash_sqlite, "~> 0.2"},
       {:ash_phoenix, "~> 2.0"},
 
@@ -51,9 +51,11 @@ defmodule Piano.MixProject do
 
       # HTTP client (for LLM calls)
       {:req, "~> 0.5"},
+      {:req_llm, "~> 1.2"},
 
       # Testing
       {:mox, "~> 1.0", only: :test},
+      {:lazy_html, ">= 0.1.0", only: :test},
 
       # Telegram
       {:ex_gram, "~> 0.57"},

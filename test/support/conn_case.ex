@@ -9,11 +9,13 @@ defmodule PianoWeb.ConnCase do
 
       import Plug.Conn
       import Phoenix.ConnTest
+      import Phoenix.LiveViewTest
       import PianoWeb.ConnCase
     end
   end
 
-  setup _tags do
+  setup tags do
+    Piano.DataCase.setup_sandbox(tags)
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 end

@@ -200,6 +200,7 @@ defmodule PianoWeb.ChatLive do
         <div class="p-4 border-b border-gray-700">
           <button
             phx-click="new_thread"
+            data-testid="new-thread-btn"
             class="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
           >
             + New Thread
@@ -210,6 +211,7 @@ defmodule PianoWeb.ChatLive do
             <button
               phx-click="select_thread"
               phx-value-id={thread.id}
+              data-testid={"thread-#{thread.id}"}
               class={[
                 "w-full text-left px-4 py-3 border-b border-gray-700 hover:bg-gray-800 transition-colors",
                 thread.id == @thread_id && "bg-gray-800"
@@ -231,7 +233,7 @@ defmodule PianoWeb.ChatLive do
           <h1 class="text-xl font-semibold text-white">Piano Chat</h1>
         </header>
 
-        <div class="flex-1 overflow-y-auto p-4 space-y-4" id="message-list" phx-update="stream">
+        <div class="flex-1 overflow-y-auto p-4 space-y-4" id="message-list" data-testid="message-list">
           <%= if @messages == [] && @thread_id == nil do %>
             <div class="flex items-center justify-center h-full text-gray-400">
               Start a new conversation by typing a message below
@@ -242,7 +244,7 @@ defmodule PianoWeb.ChatLive do
             <% end %>
           <% end %>
 
-          <div :if={@thinking} class="flex items-center gap-2 text-gray-400">
+          <div :if={@thinking} class="flex items-center gap-2 text-gray-400" data-testid="thinking-indicator">
             <div class="flex gap-1">
               <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]">
               </span>
@@ -269,7 +271,7 @@ defmodule PianoWeb.ChatLive do
               <% end %>
             </select>
           </div>
-          <form phx-submit="send_message" class="flex gap-3">
+          <form phx-submit="send_message" class="flex gap-3" data-testid="message-form">
             <input
               type="text"
               name="message"
@@ -277,11 +279,13 @@ defmodule PianoWeb.ChatLive do
               phx-change="update_input"
               placeholder="Type a message..."
               autocomplete="off"
+              data-testid="message-input"
               class="flex-1 bg-gray-800 text-white rounded-lg px-4 py-3 border border-gray-600 focus:outline-none focus:border-blue-500"
             />
             <button
               type="submit"
               disabled={@thinking}
+              data-testid="send-btn"
               class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors"
             >
               Send
@@ -307,7 +311,7 @@ defmodule PianoWeb.ChatLive do
     assigns = assign(assigns, :agent_name, agent_name)
 
     ~H"""
-    <div class="group relative">
+    <div class="group relative" data-testid={"message-#{@message.role}"}>
       <div class={[
         "max-w-[80%] rounded-lg px-4 py-3",
         @message.role == :user && "bg-blue-600 text-white ml-auto",
@@ -316,7 +320,7 @@ defmodule PianoWeb.ChatLive do
         <div class="text-sm opacity-70 mb-1">
           <%= if @message.role == :user, do: "You", else: @agent_name || "Assistant" %>
         </div>
-        <div class="whitespace-pre-wrap"><%= @message.content %></div>
+        <div class="whitespace-pre-wrap" data-testid="message-content"><%= @message.content %></div>
       </div>
       <button
         :if={@show_fork}

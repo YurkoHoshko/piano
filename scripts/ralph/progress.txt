@@ -714,3 +714,34 @@ Task ID: 40
 - Pattern: parse helper returns {:ok, value} | :error, find helper returns {:ok, record} | {:error, :not_found}
 
 ---
+
+## 2026-01-20 - US-008: ChatLive LiveView tests
+Thread: https://ampcode.com/threads/T-019bd982-12de-70a2-83f1-e32299be45f5
+Task ID: 37
+- Created LiveView tests for ChatLive instead of Wallaby E2E tests (ChromeDriver compatibility issues)
+- Added lazy_html test dependency for Phoenix LiveViewTest
+- Added data-testid attributes to ChatLive template for test element selection
+- Removed phx-update="stream" from message-list (was causing issues with empty placeholder)
+- Test 1: User can send message and see it appear (with mocked LLM)
+- Test 2: User can create new thread via button
+- Test 3: User can switch between threads in sidebar
+- Test 4: Thinking indicator appears while waiting for LLM response
+- mix compile --warnings-as-errors passes, mix test passes (38 tests)
+
+**Files created:**
+- test/piano_web/live/chat_live_test.exs - LiveView tests for chat interface
+
+**Files changed:**
+- lib/piano_web/live/chat_live.ex - Added data-testid attributes, removed phx-update="stream"
+- test/support/conn_case.ex - Added Phoenix.LiveViewTest import, DataCase setup
+- mix.exs - Added lazy_html dependency (replaced wallaby)
+- config/test.exs - Removed Wallaby config
+
+**Learnings for future iterations:**
+- Wallaby ChromeDriver issues on Linux: version mismatch between snap chromedriver and Google Chrome
+- Phoenix LiveViewTest is simpler and more reliable than browser automation for LiveView
+- phx-update="stream" requires all children to have IDs (even conditional placeholders)
+- HTML entities like apostrophes are escaped (&#39;) in test assertions - split assertions to avoid
+- lazy_html is required test dependency for Phoenix LiveView 1.1.x+
+
+---
