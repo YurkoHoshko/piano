@@ -1,0 +1,544 @@
+# Build Progress Log
+Started: 2026-01-18
+Feature: Piano - Multi-Agent Chat System
+Parent Task: 1
+
+## Codebase Patterns
+- Ash domains declared in config/config.exs under `:ash_domains` key
+- Use `ash.codegen <name>` to generate migrations, then `ash.migrate` to apply
+- AshSqlite.Repo requires otp_app: :piano
+- Spark.Formatter plugin in .formatter.exs for Ash DSL formatting
+- Ash.read with action arguments: `Ash.Query.for_read(Resource, :action, %{arg: value}) |> Ash.read()`
+- Ash.create with action arguments: `Ash.Changeset.for_create(Resource, :action, %{attrs}) |> Ash.create!()`
+
+---
+
+## 2026-01-18 - US-001: Project Setup and Ash Domain Structure
+Thread: https://ampcode.com/threads/T-019bd3e0-a8ce-7299-85c2-017af696cf1f
+Task ID: 2
+- Created Phoenix LiveView project structure from scratch
+- Added Ash Framework with SQLite (ash ~> 3.0, ash_sqlite ~> 0.2, ash_phoenix ~> 2.0)
+- Created Piano.Chat domain with Thread and Message resources
+- Created Piano.Agents domain with Agent resource
+- Generated and applied initial migrations
+- All acceptance criteria met: mix compile passes, migrations applied
+
+**Files created:**
+- lib/piano/application.ex - Application supervisor
+- lib/piano/repo.ex - AshSqlite repo
+- lib/piano/chat.ex - Chat domain
+- lib/piano/chat/thread.ex - Thread resource
+- lib/piano/chat/message.ex - Message resource  
+- lib/piano/agents.ex - Agents domain
+- lib/piano/agents/agent.ex - Agent resource
+- lib/piano_web.ex - Phoenix web module
+- lib/piano_web/endpoint.ex, router.ex, telemetry.ex
+- lib/piano_web/controllers/*, components/*
+- config/*.exs - Configuration files
+- assets/* - JS/CSS/Tailwind setup
+
+**Learnings for future iterations:**
+- When using pipe with custom functions that take JS struct, first param should be js, second the selector
+- ash.codegen generates migrations in _build, ash.migrate applies them
+- Test database lock errors are transient, tests still pass
+
+---
+
+## 2026-01-18 - US-002: Thread Resource
+Thread: https://ampcode.com/threads/T-019bd3e7-bded-768c-98f2-a30d24813785
+Task ID: 3
+- Added belongs_to :primary_agent relationship (optional) to Thread
+- Added :list action with descending inserted_at sort
+- Updated :create action to accept primary_agent_id argument
+- Generated and applied migration for primary_agent_id column
+
+**Files changed:**
+- lib/piano/chat/thread.ex - Added relationship and actions
+- priv/repo/migrations/*_add_primary_agent_to_threads.exs - New migration
+
+**Learnings for future iterations:**
+- belongs_to relationships automatically add _id foreign key column
+- manage_relationship with type: :append works for optional belongs_to associations
+
+---
+
+## 2026-01-18 - US-003: Message Resource  
+Thread: https://ampcode.com/threads/T-019bd3e9-3e73-703e-9bdc-6221f5e26cf9
+Task ID: 4
+- Verified Message resource already fully implemented in US-001
+- Has all required attributes: id, content, role, source, inserted_at
+- Has belongs_to :thread (required) and belongs_to :agent (optional)
+- Has actions: :read, :create, :list_by_thread
+- mix compile passes
+
+**Status:** Already complete from initial setup, marked as done.
+
+---
+
+## 2026-01-18 - US-004: Agent Resource
+Thread: https://ampcode.com/threads/T-019bd3e9-3e73-703e-9bdc-6221f5e26cf9
+Task ID: 5
+- Added :list action with ascending inserted_at sort
+- Created priv/repo/seeds.exs with default agent seed
+- Default agent: "Assistant" with model "qwen3:32b"
+- mix compile passes, seed runs successfully
+
+**Files changed:**
+- lib/piano/agents/agent.ex - Added :list action
+- priv/repo/seeds.exs - New seed file for default agent
+
+---
+
+## 2026-01-18 - US-005: Tool Registry
+Thread: https://ampcode.com/threads/T-019bd3eb-3c67-71cc-b469-ef8c83782a64
+Task ID: 6
+- Created Piano.Agents.ToolRegistry module
+- Defined 4 tools: read_file, create_file, edit_file, bash
+- Each tool has: name, description, parameters schema (JSON Schema format), callback function
+- Implemented get_tools/1 to return tool definitions for enabled tool names
+- Implemented list_available/0 to return all tool names
+- All tool callbacks handle errors gracefully
+
+**Files created:**
+- lib/piano/agents/tool_registry.ex - Tool registry with 4 tools and callbacks
+
+**Learnings for future iterations:**
+- Tool parameters use JSON Schema format for OpenAI-compatible tool definitions
+- Callbacks return {:ok, result} | {:error, reason} tuples for consistent handling
+- bash tool uses System.cmd with sh -c for portable command execution
+
+---
+
+## 2026-01-18 - US-006: Skill Loader
+Thread: https://ampcode.com/threads/T-019bd3ec-7e3b-750f-b21f-b001baae68b5
+Task ID: 7
+- Created Piano.Agents.SkillRegistry module
+- Scans `.agents/skills/` directory for `.md` files
+- Each skill file becomes a prompt snippet keyed by filename (without .md extension)
+- Implemented list_available/0 to return all skill names
+- Implemented get_prompts/1 to concatenate prompt text for enabled skills
+- Implemented load_skill/1 helper to read individual skill files
+- Created `.agents/skills/` directory
+- mix compile passes
+
+**Files created:**
+- lib/piano/agents/skill_registry.ex - Skill registry with directory scanning
+- .agents/skills/ - Directory for skill markdown files
+
+**Learnings for future iterations:**
+- File.ls returns {:error, _} for non-existent directories - handle gracefully with empty list
+- Skills are loaded dynamically at runtime, not compiled in - allows adding skills without restart
+
+---
+
+## 2026-01-18 - US-007: GenStage Message Producer
+Thread: https://ampcode.com/threads/T-019bd3ed-8415-71c0-af1f-b9c8e99cdba9
+Task ID: 8
+- Added gen_stage ~> 1.2 dependency to mix.exs
+- Created Piano.Pipeline.MessageProducer GenStage module
+- Implemented enqueue/1 function to add message events via cast
+- Uses :queue for internal event buffering
+- Tracks pending demand and dispatches events when consumers request
+- Added to application supervisor (before PianoWeb.Endpoint)
+- mix compile passes
+
+**Files created:**
+- lib/piano/pipeline/message_producer.ex - GenStage producer with queue buffering
+
+**Files changed:**
+- mix.exs - Added gen_stage dependency
+- lib/piano/application.ex - Added MessageProducer to supervision tree
+
+**Learnings for future iterations:**
+- GenStage producer uses {:producer, state} tuple in init
+- Use :queue module for efficient FIFO event buffering
+- Pending demand must be tracked when queue is empty to dispatch later
+- handle_cast for async enqueue, handle_demand for consumer requests
+
+---
+
+## 2026-01-18 - US-008: GenStage Agent Consumer
+Thread: https://ampcode.com/threads/T-019bd3ee-fb0b-7211-9148-94b116dd7d76
+Task ID: 9
+- Created Piano.Pipeline.AgentConsumer GenStage consumer module
+- Subscribes to MessageProducer with max_demand: 1
+- Loads agent config via Ash.get(Agent, agent_id)
+- Loads thread message history via Ash.read with :list_by_thread action
+- Builds system prompt from agent.system_prompt + enabled skills
+- Calls LLM via Piano.LLM.complete/3 with llama-swap OpenAI-compatible API
+- Handles tool calls: executes tools from ToolRegistry and continues conversation
+- Creates agent Message in database with response
+- Broadcasts lifecycle events: :processing_started, :response_ready, :processing_error
+- Added to application supervisor after MessageProducer
+- Created Piano.LLM module for llama-swap HTTP calls using Req
+- Created Piano.Events module for PubSub helpers
+- Added LLM config to config/config.exs (base_url, default_model)
+- mix compile --warnings-as-errors passes
+
+**Files created:**
+- lib/piano/pipeline/agent_consumer.ex - GenStage consumer with LLM integration
+- lib/piano/llm.ex - LLM client for llama-swap OpenAI-compatible API
+- lib/piano/events.ex - PubSub broadcast/subscribe helpers
+
+**Files changed:**
+- mix.exs - Added req ~> 0.5 dependency for HTTP calls
+- config/config.exs - Added :llm config with base_url and default_model
+- lib/piano/application.ex - Added AgentConsumer to supervision tree
+
+**Learnings for future iterations:**
+- GenStage consumer uses subscribe_to option in init to connect to producer
+- max_demand: 1 processes one message at a time (safe for LLM calls)
+- Tool call loop: execute tools, append results as tool role messages, call LLM again
+- Req.post with json: option auto-encodes body and sets Content-Type header
+
+---
+
+## 2026-01-18 - US-009: Chat Gateway
+Thread: https://ampcode.com/threads/T-019bd3fa-de4a-72de-8b18-af943aee71da
+Task ID: 10
+- Created Piano.ChatGateway module as entry point for incoming messages
+- Implemented handle_incoming/3 function with content, source, metadata parameters
+- Resolves thread: creates new if thread_id not provided, fetches existing otherwise
+- Resolves agent: uses provided agent_id, falls back to thread's primary_agent, then default agent
+- Creates user Message via Ash with :create action
+- Enqueues event to MessageProducer with thread_id, message_id, agent_id
+- Returns {:ok, message} or {:error, reason}
+- mix compile --warnings-as-errors passes
+
+**Files created:**
+- lib/piano/chat_gateway.ex - Chat gateway with handle_incoming/3
+
+**Learnings for future iterations:**
+- Gateway pattern centralizes message intake from multiple channels (web, telegram)
+- Fallback chain for agent resolution: explicit -> thread's primary_agent -> first available
+- Ash.create returns {:ok, record} | {:error, changeset} - fits well with with chains
+
+---
+
+## 2026-01-18 - US-011: Chat LiveView - Basic UI
+Thread: https://ampcode.com/threads/T-019bd3fc-70df-719e-a2b7-2518d6457afb
+Task ID: 12
+- Created PianoWeb.ChatLive LiveView at /chat route
+- Message list displaying user and agent messages with role-based styling
+- Text input with send button, disabled during thinking state
+- Integration with Piano.ChatGateway.handle_incoming/3 for message submission
+- PubSub subscription via Piano.Events.subscribe/1 for thread updates
+- Handles :processing_started, :response_ready, :processing_error events
+- Animated "Thinking..." indicator with bouncing dots
+- Updated app layout for full-height chat interface
+- mix compile --warnings-as-errors passes
+
+**Files created:**
+- lib/piano_web/live/chat_live.ex - LiveView with message list, input form, PubSub handling
+
+**Files changed:**
+- lib/piano_web/router.ex - Added /chat live route
+- lib/piano_web/components/layouts/app.html.heex - Updated for full-height layout
+
+**Learnings for future iterations:**
+- LiveView assigns update pattern: update(:messages, &(&1 ++ [new_message])) for appending
+- PubSub subscription should happen after first message creates the thread
+- phx-change on input for tracking value, phx-submit on form for submission
+- Use [animation-delay] classes for staggered bounce animations
+
+---
+
+## 2026-01-18 - US-012: Thread Switching in Chat UI
+Thread: https://ampcode.com/threads/T-019bd3fe-6b12-76fb-9d5c-a2737ea7f9b9
+Task ID: 13
+- Added sidebar showing all threads with title and timestamp
+- Threads loaded on mount via Ash.read(Thread, action: :list)
+- Click on thread navigates via push_patch to /chat?thread=<id>
+- handle_params loads messages for selected thread and subscribes to PubSub
+- "New Thread" button clears state and navigates to /chat
+- Added Events.unsubscribe/1 to properly clean up subscriptions on thread switch
+- Empty state shows helpful message when no thread selected
+- Threads list refreshes when new thread created
+- mix compile --warnings-as-errors passes
+
+**Files changed:**
+- lib/piano_web/live/chat_live.ex - Added sidebar, handle_params, thread selection
+- lib/piano/events.ex - Added unsubscribe/1 function
+
+**Learnings for future iterations:**
+- handle_params receives URL params and is called on mount and push_patch
+- push_patch navigates within same LiveView, updating URL without full reload
+- Ash.read with args: [key: value] passes arguments to action filters
+- Unsubscribe from old thread before subscribing to new to avoid duplicate events
+
+---
+
+## 2026-01-18 - US-013: Thread Forking
+Thread: https://ampcode.com/threads/T-019bd400-23c7-764a-8acf-b117d4036872
+Task ID: 14
+- Added forked_from_thread_id and forked_from_message_id attributes to Thread resource
+- Created Thread.fork action that:
+  - Takes source_thread_id and fork_at_message_id arguments
+  - Sets title to "Fork of <original title>"
+  - Copies all messages up to and including the fork point via after_action change
+- Added fork button on each message bubble (shows on hover)
+- Fork button positioned on opposite side from message alignment
+- handle_event "fork_thread" creates fork and navigates to new thread
+- Generated and applied migration for forking columns
+- mix compile --warnings-as-errors passes
+
+**Files changed:**
+- lib/piano/chat/thread.ex - Added forking attributes and :fork action
+- lib/piano_web/live/chat_live.ex - Added fork button and fork_thread handler
+- priv/repo/migrations/*_add_forking_to_threads.exs - New migration
+
+**Learnings for future iterations:**
+- Ash after_action change receives (changeset, record, context) and must return {:ok, record} or {:error, reason}
+- Ash.create! for bang version that raises on error (useful in after_action loops)
+- Ash.Changeset.get_argument/2 retrieves action arguments in change functions
+- group-hover:opacity pattern in Tailwind for showing buttons on hover
+
+---
+
+## 2026-01-18 - US-014: Agent Selection in Chat
+Thread: https://ampcode.com/threads/T-019bd402-0f3b-7148-abb8-8179072564e4
+Task ID: 15
+- Added agent dropdown above message input showing all available agents
+- Load agents on mount via Ash.read(Agent, action: :list)
+- Track selected_agent_id in assigns, passed to ChatGateway.handle_incoming in metadata
+- Agent name shown on agent messages (looks up agent by message.agent_id)
+- When loading thread, set selected_agent_id to thread's primary_agent_id as default
+- "Default Agent" option uses fallback chain in ChatGateway
+- mix compile --warnings-as-errors passes
+
+**Files changed:**
+- lib/piano_web/live/chat_live.ex - Added agent dropdown, select_agent handler, agent name display
+
+**Learnings for future iterations:**
+- Pass agents list to function components via assigns for agent name lookups
+- Use Enum.find to lookup agent by ID in component without additional DB queries
+- Thread.primary_agent_id provides sensible default when loading existing threads
+
+---
+
+## 2026-01-18 - US-026: End-to-End Test - Web Chat Flow
+Thread: https://ampcode.com/threads/T-019bd404-f2a3-77ae-8681-93fae9251181
+Task ID: 27
+- Created E2E test for web chat flow using Mox for LLM mocking
+- Test creates agent, calls ChatGateway.handle_incoming, verifies user message created
+- Verifies agent response message created from mocked LLM
+- Verifies PubSub events broadcast (processing_started, response_ready)
+- Added Mox dependency to mix.exs for testing
+- Refactored Piano.LLM to use behaviour pattern for mockability
+- Fixed Ash.read action argument syntax: use Ash.Query.for_read/3 instead of args: option
+- Updated DataCase to clean up database between tests
+- mix test passes (4 tests, 0 failures)
+
+**Files created:**
+- test/piano/chat_flow_test.exs - E2E test with 3 test cases
+
+**Files changed:**
+- mix.exs - Added mox ~> 1.0 dependency
+- lib/piano/llm.ex - Refactored to use behaviour pattern with Piano.LLM.Impl
+- config/test.exs - Configure Piano.LLM.Mock for tests
+- test/test_helper.exs - Define Mox mock for LLM
+- test/support/data_case.ex - Add database cleanup between tests
+- lib/piano/pipeline/agent_consumer.ex - Fixed Ash.read syntax
+- lib/piano_web/live/chat_live.ex - Fixed Ash.read syntax
+- lib/piano/chat/thread.ex - Fixed Ash.read and Ash.create syntax
+
+**Learnings for future iterations:**
+- Ash 3.0 requires Ash.Query.for_read(Resource, :action, %{arg: value}) for read actions with arguments
+- Ash.Changeset.for_create(Resource, :action, %{attrs}) for create actions with arguments
+- Mox requires behaviour module - use @callback in main module, delegate to impl()
+- Application.get_env(:app, :impl_key, DefaultImpl) pattern for test injection
+- set_mox_global and verify_on_exit! for async: false tests with GenStage
+- Process.sleep needed to wait for GenStage consumer to process messages
+
+---
+
+## 2026-01-18 - US-015: Admin Dashboard - Agent List
+Thread: https://ampcode.com/threads/T-019bd40a-2877-71e9-91cb-5c1975b91c96
+Task ID: 16
+- Created PianoWeb.Admin.AgentListLive at /admin/agents
+- Lists all agents with name, model, description, enabled tools/skills count
+- Edit link navigates to /admin/agents/:id with token preserved
+- Protected by token (query param or session) - default: piano_admin
+- Created placeholder AgentEditLive for next task
+- Added admin_token config to config.exs
+
+**Files created:**
+- lib/piano_web/live/admin/agent_list_live.ex - Agent list LiveView with token auth
+- lib/piano_web/live/admin/agent_edit_live.ex - Placeholder for edit form
+
+**Files changed:**
+- lib/piano_web/router.ex - Added /admin/agents and /admin/agents/:id routes
+- config/config.exs - Added :admin_token config
+
+**Learnings for future iterations:**
+- Token auth can be done in mount by checking params["token"] || session["admin_token"]
+- Pass token via query param when navigating between admin pages
+- Application.get_env(:piano, :admin_token, "piano_admin") for configurable tokens
+- Placeholder LiveViews useful when router references them before implementation
+
+---
+
+## 2026-01-18 - US-016: Admin Dashboard - Agent Configuration
+Thread: https://ampcode.com/threads/T-019bd40c-4da1-7215-a9e7-6b0bba16fcb8
+Task ID: 17
+- Expanded AgentEditLive with full configuration form
+- Form fields: name, model, description, system_prompt (all editable)
+- Tool toggles using ToolRegistry.list_available() with iOS-style switches
+- Skill toggles using SkillRegistry.list_available() with iOS-style switches
+- Toggles immediately update agent via Ash update_config action
+- Form submission also saves all basic fields via update_config action
+- Token auth preserved from placeholder implementation
+- mix compile --warnings-as-errors passes, mix test passes (4 tests)
+
+**Files changed:**
+- lib/piano_web/live/admin/agent_edit_live.ex - Full implementation with form and toggles
+
+**Learnings for future iterations:**
+- Toggle buttons with phx-click instantly update DB without form submission
+- Use Ash.Changeset.for_update(record, :action, attrs) |> Ash.update() pattern
+- to_form/1 creates a form from a plain map for simple form handling
+- Tailwind translate-x-N for toggle switch animation with transition classes
+
+---
+
+## 2026-01-18 - US-017: Admin Token Authentication
+Thread: https://ampcode.com/threads/T-019bd40f-09e9-715d-8083-d712e1336c64
+Task ID: 18
+- Generate random 16-byte token on application start using :crypto.strong_rand_bytes
+- Store token via Application.put_env(:piano, :admin_token, token)
+- Print token to console with clear message showing admin URL
+- Existing LiveView checks already validate against Application.get_env(:piano, :admin_token)
+- Token auth works: invalid/missing token redirects to / with error flash
+- mix compile --warnings-as-errors passes, mix test passes (4 tests)
+
+**Files changed:**
+- lib/piano/application.ex - Added setup_admin_token/0 function called at startup
+
+**Learnings for future iterations:**
+- :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false) creates URL-safe random tokens
+- Application.put_env can set runtime config that overrides compile-time config
+- IO.puts with heredoc (""") for multi-line formatted console output
+
+---
+
+## 2026-01-18 - US-018: Telegram Bot Setup
+Thread: https://ampcode.com/threads/T-019bd410-d5d5-71e9-8cfb-63f48f1957f1
+Task ID: 19
+- Created Piano.Telegram.Bot module using ExGram framework
+- Added ex_gram ~> 0.57, tesla ~> 1.4, hackney ~> 1.18 dependencies
+- Bot token configured via TELEGRAM_BOT_TOKEN environment variable
+- Handles /start command with welcome message explaining available features
+- Handles unknown commands and text messages with placeholder responses
+- Bot conditionally added to supervision tree only when token is configured
+- Console message printed at startup indicating bot status (enabled/disabled)
+- mix compile --warnings-as-errors passes, mix test passes (4 tests)
+
+**Files created:**
+- lib/piano/telegram/bot.ex - ExGram bot with /start command handler
+
+**Files changed:**
+- mix.exs - Added ex_gram, tesla, hackney dependencies
+- config/config.exs - Added :telegram config and :ex_gram token config
+- lib/piano/application.ex - Added conditional telegram_children/0 to supervision tree
+
+**Learnings for future iterations:**
+- ExGram uses `use ExGram.Bot, name: __MODULE__` macro - do not add @impl annotations
+- command("start") macro declares /start command handler
+- handle/2 pattern matches on {:command, :start, msg} tuples for commands
+- Conditional supervision: return empty list from helper when feature disabled
+- Tesla is the HTTP adapter for ExGram, hackney is the underlying HTTP client
+
+---
+
+## 2026-01-18 - US-019: Telegram Message Handling
+Thread: https://ampcode.com/threads/T-019bd413-6fa5-74ac-a8e7-31472ea5ced1
+Task ID: 20
+- Extended Piano.Telegram.Bot to forward text messages to ChatGateway
+- Source set to :telegram, metadata includes chat_id
+- Sends typing action immediately using ExGram.send_chat_action
+- Subscribes to PubSub for thread events after ChatGateway creates message
+- Spawns process to wait for :response_ready, :processing_started, :processing_error events
+- Sends typing action on :processing_started to keep indicator active
+- Sends agent response back via ExGram.send_message on :response_ready
+- Handles errors gracefully with user-friendly messages
+- 2-minute timeout for response with appropriate message
+- Updated ChatGateway metadata type to include optional chat_id
+- mix compile --warnings-as-errors passes, mix test passes (4 tests)
+
+**Files changed:**
+- lib/piano/telegram/bot.ex - Added message forwarding and response handling
+- lib/piano/chat_gateway.ex - Added chat_id to metadata type
+
+**Learnings for future iterations:**
+- ExGram.send_chat_action(chat_id, "typing", token: token) for typing indicator
+- ExGram.send_message(chat_id, text, token: token) for sending responses
+- Must pass token: option to ExGram methods when calling outside of handle context
+- PubSub subscription in handle then spawn process to receive events
+- Spawned process receives PubSub messages since subscription is process-local
+- Use receive/after for timeout handling in spawned response waiter
+
+---
+
+## 2026-01-18 - US-027: End-to-End Test - Telegram Flow
+Thread: https://ampcode.com/threads/T-019bd415-7241-7398-89e0-327d28e152ea
+Task ID: 28
+- Created E2E test for Telegram flow using Mox for LLM and Telegram API mocking
+- Created Piano.Telegram.API behaviour wrapper for ExGram calls
+- Updated Piano.Telegram.Bot to use API wrapper instead of direct ExGram calls
+- Fixed bug: PubSub subscription must happen inside spawned process, not parent
+- Test simulates incoming Telegram message via Bot.handle({:text, text, msg}, nil)
+- Uses mock LLM response and mock Telegram API calls
+- Verifies user message created with source :telegram
+- Verifies agent response message created
+- Verifies ExGram.send_message called with response content
+- Added error handling test case
+- mix compile --warnings-as-errors passes, mix test passes (7 tests)
+
+**Files created:**
+- lib/piano/telegram/api.ex - Behaviour wrapper for ExGram API calls
+- test/piano/telegram_flow_test.exs - E2E test with 3 test cases
+
+**Files changed:**
+- lib/piano/telegram/bot.ex - Use API wrapper, fix PubSub subscription location
+- test/test_helper.exs - Added Piano.Telegram.API.Mock definition
+- config/test.exs - Configure Piano.Telegram.API.Mock for tests
+
+**Learnings for future iterations:**
+- Create behaviour wrappers for external API libraries to enable Mox testing
+- Application.get_env(:app, :impl_key, DefaultImpl) pattern works for any external dependency
+- PubSub subscribe must happen in the process that will receive - subscription is process-local
+- spawn(fn -> subscribe; receive_loop end) NOT subscribe; spawn(fn -> receive_loop end)
+- Use assert_receive with message passing from mock to avoid race conditions in tests
+- set_mox_global allows spawned processes to use the mocks
+
+---
+
+## 2026-01-18 - US-020: Telegram Thread Mapping
+Thread: https://ampcode.com/threads/T-019bd418-f248-753f-87f9-0c90211ca411
+Task ID: 21
+- Created Piano.Telegram.SessionMapper GenServer with ETS for chat-to-thread mappings
+- Provides get_or_create_thread/1, set_thread/2, reset_thread/1, get_thread/1
+- ETS table with :public and :read_concurrency for fast concurrent lookups
+- Added /newthread command to reset mapping and start fresh conversation
+- Added /thread <id> command to switch to existing thread
+- Updated Bot.handle({:text,...}) to use SessionMapper before ChatGateway
+- SessionMapper added to supervision tree in telegram_children/0
+- Tests updated to start_supervised!(SessionMapper) for ETS availability
+- mix compile --warnings-as-errors passes, mix test passes (7 tests)
+
+**Files created:**
+- lib/piano/telegram/session_mapper.ex - GenServer with ETS for chat-to-thread mapping
+
+**Files changed:**
+- lib/piano/telegram/bot.ex - Added command handlers and SessionMapper integration
+- lib/piano/application.ex - Added SessionMapper to telegram_children
+- test/piano/telegram_flow_test.exs - Start SessionMapper in test setup
+
+**Learnings for future iterations:**
+- ETS with :named_table and :public allows any process to read/write
+- :read_concurrency true optimizes for concurrent reads
+- GenServer just creates/owns ETS table, actual operations use :ets directly
+- Tests need start_supervised!(SessionMapper) to make ETS table available
+- ExGram commands registered with command("name") macro, handler matches {:command, :name, msg}
+
+---

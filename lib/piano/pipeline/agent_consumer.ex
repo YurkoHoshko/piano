@@ -6,11 +6,9 @@ defmodule Piano.Pipeline.AgentConsumer do
 
   use GenStage
 
-  require Logger
-
   alias Piano.Agents.{Agent, ToolRegistry, SkillRegistry}
   alias Piano.Chat.Message
-  alias Piano.{Events, LLM}
+  alias Piano.{Events, LLM, Logger}
 
   def start_link(opts \\ []) do
     GenStage.start_link(__MODULE__, opts, name: __MODULE__)
@@ -28,7 +26,7 @@ defmodule Piano.Pipeline.AgentConsumer do
   end
 
   defp process_event(%{thread_id: thread_id, message_id: message_id, agent_id: agent_id}) do
-    Logger.info("Processing message #{message_id} for thread #{thread_id}")
+    Logger.info(:pipeline, "Processing message", message_id: message_id, thread_id: thread_id)
 
     Events.broadcast(thread_id, {:processing_started, message_id})
 
@@ -37,10 +35,10 @@ defmodule Piano.Pipeline.AgentConsumer do
          {:ok, response} <- call_llm(agent, messages),
          {:ok, agent_message} <- create_agent_message(thread_id, agent_id, response) do
       Events.broadcast(thread_id, {:response_ready, agent_message})
-      Logger.info("Successfully processed message #{message_id}")
+      Logger.info(:pipeline, "Successfully processed message", message_id: message_id)
     else
       {:error, reason} ->
-        Logger.error("Failed to process message #{message_id}: #{inspect(reason)}")
+        Logger.error(:pipeline, "Failed to process message", message_id: message_id, reason: reason)
         Events.broadcast(thread_id, {:processing_error, message_id, reason})
     end
   end

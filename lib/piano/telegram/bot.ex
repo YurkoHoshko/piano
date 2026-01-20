@@ -9,9 +9,7 @@ defmodule Piano.Telegram.Bot do
     name: __MODULE__,
     setup_commands: true
 
-  require Logger
-
-  alias Piano.{ChatGateway, Events}
+  alias Piano.{ChatGateway, Events, Logger}
   alias Piano.Chat.Thread
   alias Piano.Telegram.{API, SessionMapper}
 
@@ -91,12 +89,12 @@ defmodule Piano.Telegram.Bot do
             end)
 
           {:error, reason} ->
-            Logger.error("Failed to handle Telegram message: #{inspect(reason)}")
+            Logger.error(:telegram, "Failed to handle message", chat_id: chat_id, reason: reason)
             API.send_message(chat_id, "Sorry, something went wrong. Please try again.", token: token)
         end
 
       {:error, reason} ->
-        Logger.error("Failed to get/create thread for chat #{chat_id}: #{inspect(reason)}")
+        Logger.error(:telegram, "Failed to get/create thread", chat_id: chat_id, reason: reason)
         API.send_message(chat_id, "Sorry, something went wrong. Please try again.", token: token)
     end
 
@@ -128,12 +126,12 @@ defmodule Piano.Telegram.Bot do
         Events.unsubscribe(thread_id)
 
       {:processing_error, _message_id, reason} ->
-        Logger.error("Processing error for thread #{thread_id}: #{inspect(reason)}")
+        Logger.error(:telegram, "Processing error", thread_id: thread_id, reason: reason)
         API.send_message(chat_id, "Sorry, I encountered an error processing your message.", token: token)
         Events.unsubscribe(thread_id)
     after
       120_000 ->
-        Logger.warning("Response timeout for thread #{thread_id}")
+        Logger.warning(:telegram, "Response timeout", thread_id: thread_id)
         API.send_message(chat_id, "Sorry, the request timed out. Please try again.", token: token)
         Events.unsubscribe(thread_id)
     end
