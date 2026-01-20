@@ -23,6 +23,11 @@ defmodule Piano.TelegramFlowTest do
 
   describe "telegram chat flow" do
     setup do
+      case :ets.whereis(:piano_pending_requests) do
+        :undefined -> :ok
+        _ref -> :ets.delete_all_objects(:piano_pending_requests)
+      end
+
       {:ok, agent} =
         Ash.create(Agent,
           %{
@@ -143,7 +148,7 @@ defmodule Piano.TelegramFlowTest do
       Bot.handle({:text, "Trigger error", mock_msg}, nil)
 
       assert_receive {:error_message_edited, content}, 2000
-      assert content =~ "error"
+      assert content =~ "❌"
     end
 
     test "falls back to send_message when edit fails", %{agent: _agent} do
@@ -176,6 +181,56 @@ defmodule Piano.TelegramFlowTest do
       Bot.handle({:text, "Test fallback", mock_msg}, nil)
 
       assert_receive {:fallback_message_sent, "Hello from the bot! How can I assist you?"}, 2000
+    end
+
+    test "splits long responses across multiple messages", %{agent: _agent} do
+      chat_id = 888_999_000
+      test_pid = self()
+      placeholder_message_id = 456
+
+      long_content = String.duplicate("A", 5000)
+
+      mock_response = %{
+        "choices" => [
+          %{
+            "message" => %{
+              "role" => "assistant",
+              "content" => long_content
+            },
+            "finish_reason" => "stop"
+          }
+        ]
+      }
+
+      Piano.LLM.Mock
+      |> expect(:complete, fn _messages, _tools, _opts ->
+        {:ok, mock_response}
+      end)
+
+      Piano.Telegram.API.Mock
+      |> stub(:send_chat_action, fn _chat_id, "typing", _opts ->
+        {:ok, %{}}
+      end)
+      |> expect(:send_message, fn ^chat_id, "⏳ Processing...", _opts ->
+        {:ok, %{message_id: placeholder_message_id}}
+      end)
+      |> expect(:edit_message_text, fn ^chat_id, ^placeholder_message_id, first_chunk, _opts ->
+        send(test_pid, {:first_chunk_edited, byte_size(first_chunk)})
+        {:ok, %{}}
+      end)
+      |> expect(:send_message, fn ^chat_id, second_chunk, _opts ->
+        send(test_pid, {:second_chunk_sent, byte_size(second_chunk)})
+        {:ok, %{}}
+      end)
+
+      mock_msg = %{chat: %{id: chat_id}}
+
+      Bot.handle({:text, "Send me a long response", mock_msg}, nil)
+
+      assert_receive {:first_chunk_edited, first_len}, 2000
+      assert first_len <= 4096
+      assert_receive {:second_chunk_sent, second_len}, 2000
+      assert second_len > 0
     end
   end
 end

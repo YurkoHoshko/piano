@@ -22,6 +22,12 @@ defmodule Piano.Telegram.Bot do
   command("status")
   command("history")
   command("delete")
+  command("cancel")
+
+  # Telegram message character limit
+  @max_message_length 4096
+  # Time before showing "Still working..." message
+  @still_working_timeout 30_000
 
   middleware(ExGram.Middleware.IgnoreUsername)
 
@@ -185,6 +191,22 @@ defmodule Piano.Telegram.Bot do
     end
   end
 
+  def handle({:command, :cancel, msg}, context) do
+    chat_id = msg.chat.id
+
+    case :ets.lookup(:piano_pending_requests, chat_id) do
+      [{^chat_id, pid, placeholder_message_id}] ->
+        send(pid, :cancelled)
+        :ets.delete(:piano_pending_requests, chat_id)
+        token = bot_token()
+        send_or_edit(chat_id, placeholder_message_id, "⏹️ Cancelled", token)
+        answer(context, "Request cancelled.")
+
+      [] ->
+        answer(context, "No pending request to cancel.")
+    end
+  end
+
   def handle({:command, _command, _msg}, context) do
     answer(context, "Unknown command. Send /help to see available commands.")
   end
@@ -205,9 +227,18 @@ defmodule Piano.Telegram.Bot do
 
         case ChatGateway.handle_incoming(text, :telegram, metadata) do
           {:ok, message} ->
+            parent = self()
+
             spawn(fn ->
+              ensure_pending_requests_table()
+              :ets.insert(:piano_pending_requests, {chat_id, self(), placeholder_message_id})
               Events.subscribe(message.thread_id)
-              wait_for_response(chat_id, message.thread_id, token, placeholder_message_id)
+
+              result =
+                wait_for_response(chat_id, message.thread_id, token, placeholder_message_id)
+
+              :ets.delete(:piano_pending_requests, chat_id)
+              send(parent, {:request_complete, chat_id, result})
             end)
 
           {:error, reason} ->
@@ -238,24 +269,52 @@ defmodule Piano.Telegram.Bot do
   end
 
   defp wait_for_response(chat_id, thread_id, token, placeholder_message_id) do
-    receive do
-      {:processing_started, _message_id} ->
-        API.send_chat_action(chat_id, "typing", token: token)
-        wait_for_response(chat_id, thread_id, token, placeholder_message_id)
+    wait_for_response(chat_id, thread_id, token, placeholder_message_id, 0)
+  end
 
-      {:response_ready, agent_message} ->
-        send_or_edit(chat_id, placeholder_message_id, agent_message.content, token)
-        Events.unsubscribe(thread_id)
+  defp wait_for_response(chat_id, thread_id, token, placeholder_message_id, elapsed) do
+    remaining = 120_000 - elapsed
+    timeout = min(@still_working_timeout, remaining)
 
-      {:processing_error, _message_id, reason} ->
-        Logger.error("Processing error for thread #{thread_id}: #{inspect(reason)}")
-        send_or_edit(chat_id, placeholder_message_id, "Sorry, I encountered an error processing your message.", token)
-        Events.unsubscribe(thread_id)
-    after
-      120_000 ->
-        Logger.warning("Response timeout for thread #{thread_id}")
-        send_or_edit(chat_id, placeholder_message_id, "Sorry, the request timed out. Please try again.", token)
-        Events.unsubscribe(thread_id)
+    if remaining <= 0 do
+      Logger.warning("Response timeout for thread #{thread_id}")
+      send_or_edit(chat_id, placeholder_message_id, "Sorry, the request timed out. Please try again.", token)
+      Events.unsubscribe(thread_id)
+      :timeout
+    else
+      receive do
+        :cancelled ->
+          Events.unsubscribe(thread_id)
+          :cancelled
+
+        {:processing_started, _message_id} ->
+          API.send_chat_action(chat_id, "typing", token: token)
+          wait_for_response(chat_id, thread_id, token, placeholder_message_id, elapsed)
+
+        {:response_ready, agent_message} ->
+          send_long_response(chat_id, placeholder_message_id, agent_message.content, token)
+          Events.unsubscribe(thread_id)
+          :ok
+
+        {:processing_error, _message_id, reason} ->
+          Logger.error("Processing error for thread #{thread_id}: #{inspect(reason)}")
+          error_message = format_error_message(reason)
+          send_or_edit(chat_id, placeholder_message_id, error_message, token)
+          Events.unsubscribe(thread_id)
+          :error
+      after
+        timeout ->
+          if elapsed + timeout < 120_000 do
+            send_or_edit(chat_id, placeholder_message_id, "⏳ Still working...", token)
+            API.send_chat_action(chat_id, "typing", token: token)
+            wait_for_response(chat_id, thread_id, token, placeholder_message_id, elapsed + timeout)
+          else
+            Logger.warning("Response timeout for thread #{thread_id}")
+            send_or_edit(chat_id, placeholder_message_id, "Sorry, the request timed out. Please try again.", token)
+            Events.unsubscribe(thread_id)
+            :timeout
+          end
+      end
     end
   end
 
@@ -270,6 +329,108 @@ defmodule Piano.Telegram.Bot do
 
       {:error, _reason} ->
         API.send_message(chat_id, text, token: token)
+    end
+  end
+
+  defp send_long_response(chat_id, placeholder_message_id, content, token) do
+    chunks = split_message(content)
+
+    case chunks do
+      [] ->
+        send_or_edit(chat_id, placeholder_message_id, "No response generated.", token)
+
+      [first | rest] ->
+        send_or_edit(chat_id, placeholder_message_id, first, token)
+
+        Enum.each(rest, fn chunk ->
+          Process.sleep(100)
+          API.send_message(chat_id, chunk, token: token, parse_mode: "Markdown")
+        end)
+    end
+  end
+
+  defp split_message(content) when byte_size(content) <= @max_message_length do
+    [content]
+  end
+
+  defp split_message(content) do
+    content
+    |> String.graphemes()
+    |> Enum.chunk_every(@max_message_length - 50)
+    |> Enum.map(&Enum.join/1)
+    |> Enum.flat_map(&split_at_boundaries/1)
+  end
+
+  defp split_at_boundaries(chunk) when byte_size(chunk) <= @max_message_length do
+    [chunk]
+  end
+
+  defp split_at_boundaries(chunk) do
+    split_points = ["\n\n", "\n", ". ", " "]
+
+    case find_split_point(chunk, split_points) do
+      nil ->
+        mid = div(String.length(chunk), 2)
+        {left, right} = String.split_at(chunk, mid)
+        [String.trim_trailing(left), String.trim_leading(right)]
+
+      {pos, _delimiter} ->
+        {left, right} = String.split_at(chunk, pos)
+        [String.trim_trailing(left) | split_at_boundaries(String.trim_leading(right))]
+    end
+  end
+
+  defp find_split_point(chunk, delimiters) do
+    target = div(@max_message_length, 2)
+
+    Enum.find_value(delimiters, fn delimiter ->
+      case find_nearest_delimiter(chunk, delimiter, target) do
+        nil -> nil
+        pos -> {pos + String.length(delimiter), delimiter}
+      end
+    end)
+  end
+
+  defp find_nearest_delimiter(chunk, delimiter, target) do
+    positions =
+      chunk
+      |> String.split(delimiter)
+      |> Enum.reduce({0, []}, fn part, {offset, positions} ->
+        new_offset = offset + String.length(part) + String.length(delimiter)
+        {new_offset, [offset + String.length(part) | positions]}
+      end)
+      |> elem(1)
+      |> Enum.reverse()
+      |> Enum.drop(-1)
+
+    positions
+    |> Enum.filter(&(&1 > 100 and &1 < @max_message_length - 100))
+    |> Enum.min_by(&abs(&1 - target), fn -> nil end)
+  end
+
+  defp format_error_message(reason) do
+    case reason do
+      :llm_failure ->
+        "❌ Sorry, I couldn't generate a response. Please try again."
+
+      :timeout ->
+        "❌ The request timed out. Please try again."
+
+      %{message: msg} when is_binary(msg) ->
+        "❌ Error: #{String.slice(msg, 0, 200)}"
+
+      _ ->
+        "❌ Sorry, I encountered an error processing your message."
+    end
+  end
+
+  defp ensure_pending_requests_table do
+    case :ets.whereis(:piano_pending_requests) do
+      :undefined ->
+        :ets.new(:piano_pending_requests, [:named_table, :public, :set])
+
+      _ref ->
+        :ok
     end
   end
 end

@@ -620,3 +620,31 @@ Task ID: 50
 - When edit fails (e.g., message too old), fall back to sending new message
 
 ---
+
+## 2026-01-20 - US-022: Handle placeholder message edge cases
+Thread: https://ampcode.com/threads/T-019bd976-917a-7469-8cf0-44c774fe650f
+Task ID: 51
+- Added intermediate "⏳ Still working..." updates every 30 seconds during long-running requests
+- Added /cancel command to stop pending requests and edit placeholder to "⏹️ Cancelled"
+- Implemented message splitting for responses >4096 characters (Telegram limit)
+- Split at natural boundaries (paragraphs, lines, sentences, spaces) for readability
+- Added format_error_message/1 for user-friendly error messages with emoji indicators
+- Created ETS table :piano_pending_requests to track in-flight requests for cancellation
+- Added send_long_response/4 helper that splits and sends chunks with 100ms delay
+- Updated wait_for_response/5 with elapsed time tracking for timeout handling
+- Added test for long response splitting
+- mix compile --warnings-as-errors passes, mix test passes (34 tests)
+
+**Files changed:**
+- lib/piano/telegram/bot.ex - Added /cancel command, still working updates, message splitting, error formatting
+- test/piano/telegram_flow_test.exs - Added ETS cleanup in setup, new test for long response splitting
+
+**Learnings for future iterations:**
+- Use nested receive with intermediate timeouts for "still working" updates
+- ETS :piano_pending_requests with :public allows any process to signal cancellation
+- ensure_pending_requests_table/0 with :ets.whereis for lazy ETS table creation
+- Split messages at natural boundaries for better readability
+- byte_size vs String.length for Telegram's 4096 byte limit
+- Test isolation with async: false requires explicit cleanup (ETS delete_all_objects)
+
+---
