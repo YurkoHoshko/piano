@@ -12,12 +12,15 @@ defmodule Piano.Telegram.Bot do
   require Logger
 
   alias Piano.{ChatGateway, Events}
-  alias Piano.Chat.Thread
+  alias Piano.Chat.{Message, Thread}
   alias Piano.Telegram.{API, SessionMapper}
 
   command("start")
+  command("help")
   command("newthread")
   command("thread")
+  command("status")
+  command("history")
 
   middleware(ExGram.Middleware.IgnoreUsername)
 
@@ -41,6 +44,23 @@ defmodule Piano.Telegram.Bot do
     """
 
     answer(context, welcome_message)
+  end
+
+  def handle({:command, :help, _msg}, context) do
+    help_message = """
+    📚 *Available Commands*
+
+    /start - Welcome message and getting started
+    /help - Show this help message
+    /newthread - Start a fresh conversation
+    /thread <id> - Switch to an existing thread
+    /status - Show current session info
+    /history - Show recent messages in current thread
+
+    💬 Just send any message to chat with me!
+    """
+
+    answer(context, help_message, parse_mode: "Markdown")
   end
 
   def handle({:command, :newthread, msg}, context) do
@@ -69,8 +89,78 @@ defmodule Piano.Telegram.Bot do
     end
   end
 
+  def handle({:command, :status, msg}, context) do
+    chat_id = msg.chat.id
+
+    case SessionMapper.get_thread(chat_id) do
+      nil ->
+        answer(context, "No active thread. Send a message to start one!")
+
+      thread_id ->
+        case Ash.get(Thread, thread_id) do
+          {:ok, thread} ->
+            query = Ash.Query.for_read(Message, :list_by_thread, %{thread_id: thread_id})
+            message_count = case Ash.read(query) do
+              {:ok, messages} -> length(messages)
+              _ -> 0
+            end
+
+            title = thread.title || "Untitled"
+            created = Calendar.strftime(thread.inserted_at, "%Y-%m-%d %H:%M")
+
+            status = """
+            📊 *Session Status*
+
+            🧵 Thread: #{title}
+            🆔 ID: `#{thread_id}`
+            📝 Messages: #{message_count}
+            📅 Created: #{created}
+            """
+
+            answer(context, status, parse_mode: "Markdown")
+
+          {:error, _} ->
+            answer(context, "No active thread. Send a message to start one!")
+        end
+    end
+  end
+
+  def handle({:command, :history, msg}, context) do
+    chat_id = msg.chat.id
+
+    case SessionMapper.get_thread(chat_id) do
+      nil ->
+        answer(context, "No active thread. Send a message to start one!")
+
+      thread_id ->
+        query = Ash.Query.for_read(Message, :list_by_thread, %{thread_id: thread_id})
+
+        case Ash.read(query) do
+          {:ok, messages} when messages != [] ->
+            sorted = Enum.sort_by(messages, & &1.inserted_at, DateTime)
+            recent = Enum.take(sorted, -10)
+
+            history =
+              Enum.map_join(recent, "\n\n", fn msg ->
+                prefix = if msg.role == :user, do: "👤 You", else: "🤖 Bot"
+                content = String.slice(msg.content, 0, 100)
+                content = if String.length(msg.content) > 100, do: content <> "...", else: content
+                "#{prefix}: #{content}"
+              end)
+
+            answer(context, "📜 *Recent Messages*\n\n#{history}", parse_mode: "Markdown")
+
+          {:ok, []} ->
+            answer(context, "No messages in this thread yet.")
+
+          {:error, _} ->
+            answer(context, "Failed to load history.")
+        end
+    end
+  end
+
   def handle({:command, _command, _msg}, context) do
-    answer(context, "Unknown command. Send /start to see available options.")
+    answer(context, "Unknown command. Send /help to see available commands.")
   end
 
   def handle({:text, text, msg}, _context) do
