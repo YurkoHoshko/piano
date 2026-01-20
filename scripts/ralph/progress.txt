@@ -542,3 +542,55 @@ Task ID: 21
 - ExGram commands registered with command("name") macro, handler matches {:command, :name, msg}
 
 ---
+
+## 2026-01-20 - US-016: Persist Telegram sessions in database
+Thread: https://ampcode.com/threads/T-019bd970-03ff-738d-a3ac-f2d5bb275803
+Task ID: 45
+- Created Piano.Telegram domain module
+- Created Piano.Telegram.Session Ash resource with chat_id (integer, primary key), thread_id, agent_id
+- Added unique identity on chat_id
+- Refactored SessionMapper from GenServer/ETS to pure DB queries
+- Removed SessionMapper from application supervision tree
+- Added Piano.Telegram to :ash_domains in config.exs
+- Updated test DataCase to delete telegram_sessions before threads (FK constraint)
+- Updated telegram_flow_test.exs to remove start_supervised!(SessionMapper)
+
+**Files created:**
+- lib/piano/telegram.ex - New Ash domain
+- lib/piano/telegram/session.ex - Session resource with chat_id as primary key
+- priv/repo/migrations/20260120032641_add_telegram_sessions.exs
+
+**Files changed:**
+- lib/piano/telegram/session_mapper.ex - Refactored to use DB queries
+- config/config.exs - Added Piano.Telegram domain
+- lib/piano/application.ex - Removed SessionMapper from children
+- test/support/data_case.ex - Added telegram_sessions cleanup
+- test/piano/telegram_flow_test.exs - Removed SessionMapper supervised startup
+
+**Learnings for future iterations:**
+- Ash.read_one returns {:ok, nil} when not found, not {:error, NotFound} - pattern match accordingly
+- When adding FK constraints, update test cleanup order in DataCase
+- Integer primary keys in Ash: use `attribute :id, :integer, primary_key?: true`
+
+---
+
+## 2026-01-20 - US-015: Add /delete command to Telegram bot
+Thread: https://ampcode.com/threads/T-019bd972-788c-71ba-a5d7-16916fedf879
+Task ID: 44
+- Added command("delete") to Bot module command declarations
+- Added handler for /delete command with confirmation flow
+- First call without "confirm" shows warning and asks for confirmation
+- /delete confirm deletes thread via Ash.destroy! and resets session
+- Added :destroy to Thread resource defaults (cascades to messages via on_delete: :delete)
+- mix compile --warnings-as-errors passes, mix test passes (32 tests)
+
+**Files changed:**
+- lib/piano/telegram/bot.ex - Added /delete command and handler
+- lib/piano/chat/thread.ex - Added :destroy to actions defaults
+
+**Learnings for future iterations:**
+- Ash defaults accept :destroy for simple delete action
+- Message reference has on_delete: :delete so thread deletion cascades automatically
+- String.contains?(text, "confirm") for simple confirmation parsing
+
+---

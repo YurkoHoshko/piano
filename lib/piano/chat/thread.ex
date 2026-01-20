@@ -41,7 +41,7 @@ defmodule Piano.Chat.Thread do
   end
 
   actions do
-    defaults [:read]
+    defaults [:read, :destroy]
 
     create :create do
       accept [:title]

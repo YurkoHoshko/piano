@@ -21,6 +21,7 @@ defmodule Piano.Telegram.Bot do
   command("thread")
   command("status")
   command("history")
+  command("delete")
 
   middleware(ExGram.Middleware.IgnoreUsername)
 
@@ -155,6 +156,31 @@ defmodule Piano.Telegram.Bot do
 
           {:error, _} ->
             answer(context, "Failed to load history.")
+        end
+    end
+  end
+
+  def handle({:command, :delete, %{text: text} = msg}, context) do
+    chat_id = msg.chat.id
+
+    case SessionMapper.get_thread(chat_id) do
+      nil ->
+        answer(context, "No active thread to delete.")
+
+      thread_id ->
+        if String.contains?(text, "confirm") do
+          case Ash.get(Thread, thread_id) do
+            {:ok, thread} ->
+              Ash.destroy!(thread)
+              SessionMapper.reset_thread(chat_id)
+              answer(context, "🗑️ Thread deleted. Send a message to start a new conversation.")
+
+            {:error, _} ->
+              SessionMapper.reset_thread(chat_id)
+              answer(context, "Thread not found. Session cleared.")
+          end
+        else
+          answer(context, "⚠️ Are you sure? This will delete all messages in the current thread.\n\nReply /delete confirm to proceed.")
         end
     end
   end
