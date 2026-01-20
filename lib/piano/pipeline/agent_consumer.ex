@@ -67,7 +67,7 @@ defmodule Piano.Pipeline.AgentConsumer do
     end
   end
 
-  @max_tool_iterations 5
+  @max_tool_iterations 10
 
   defp call_llm(agent, messages, thread_id) do
     system_prompt = build_system_prompt(agent)
