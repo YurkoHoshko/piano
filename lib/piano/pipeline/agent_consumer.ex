@@ -65,6 +65,8 @@ defmodule Piano.Pipeline.AgentConsumer do
     end
   end
 
+  @max_tool_iterations 5
+
   defp call_llm(agent, messages) do
     system_prompt = build_system_prompt(agent)
     llm_messages = build_llm_messages(system_prompt, messages)
@@ -72,7 +74,7 @@ defmodule Piano.Pipeline.AgentConsumer do
 
     case LLM.complete(llm_messages, tools, model: agent.model) do
       {:ok, response} ->
-        handle_llm_response(response, tools, llm_messages, agent)
+        handle_llm_response(response, tools, llm_messages, agent, 0)
 
       {:error, _} = error ->
         error
@@ -103,18 +105,25 @@ defmodule Piano.Pipeline.AgentConsumer do
     [system_msg | history]
   end
 
-  defp handle_llm_response(response, tools, llm_messages, agent) do
+  defp handle_llm_response(response, tools, llm_messages, agent, iteration) do
     tool_calls = LLM.extract_tool_calls(response)
 
-    if Enum.empty?(tool_calls) do
-      content = LLM.extract_content(response) || ""
-      {:ok, content}
-    else
-      execute_tool_calls_and_continue(response, tool_calls, tools, llm_messages, agent)
+    cond do
+      Enum.empty?(tool_calls) ->
+        content = LLM.extract_content(response) || ""
+        {:ok, content}
+
+      iteration >= @max_tool_iterations ->
+        Logger.warning("Max tool iterations (#{@max_tool_iterations}) reached, returning partial response")
+        content = LLM.extract_content(response) || "I attempted to use tools but reached the maximum number of iterations."
+        {:ok, content}
+
+      true ->
+        execute_tool_calls_and_continue(response, tool_calls, tools, llm_messages, agent, iteration)
     end
   end
 
-  defp execute_tool_calls_and_continue(response, tool_calls, tools, llm_messages, agent) do
+  defp execute_tool_calls_and_continue(response, tool_calls, tools, llm_messages, agent, iteration) do
     assistant_msg = %{
       role: "assistant",
       content: LLM.extract_content(response),
@@ -126,10 +135,17 @@ defmodule Piano.Pipeline.AgentConsumer do
         function_name = tc["function"]["name"]
         arguments = Jason.decode!(tc["function"]["arguments"])
 
+        Logger.debug("Executing tool #{function_name} with args: #{inspect(arguments)}")
+
         result =
           case execute_tool(function_name, arguments, tools) do
-            {:ok, output} -> output
-            {:error, error} -> "Error: #{inspect(error)}"
+            {:ok, output} ->
+              Logger.debug("Tool #{function_name} returned #{byte_size(output)} bytes")
+              output
+
+            {:error, error} ->
+              Logger.warning("Tool #{function_name} failed: #{inspect(error)}")
+              "Error: #{inspect(error)}"
           end
 
         %{
@@ -143,7 +159,7 @@ defmodule Piano.Pipeline.AgentConsumer do
 
     case LLM.complete(updated_messages, tools, model: agent.model) do
       {:ok, new_response} ->
-        handle_llm_response(new_response, tools, updated_messages, agent)
+        handle_llm_response(new_response, tools, updated_messages, agent, iteration + 1)
 
       {:error, _} = error ->
         error
