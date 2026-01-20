@@ -75,8 +75,8 @@ defmodule PianoWeb.Admin.AgentEditLive do
       description: form_params["description"],
       model: form_params["model"],
       system_prompt: form_params["system_prompt"],
-      enabled_tools: form_params["enabled_tools"] || [],
-      enabled_skills: form_params["enabled_skills"] || []
+      enabled_tools: agent.enabled_tools || [],
+      enabled_skills: agent.enabled_skills || []
     }
 
     case agent

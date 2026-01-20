@@ -58,9 +58,7 @@ defmodule Piano.MixProject do
       {:lazy_html, ">= 0.1.0", only: :test},
 
       # Telegram
-      {:ex_gram, "~> 0.57"},
-      {:tesla, "~> 1.4"},
-      {:hackney, "~> 1.18"}
+      {:ex_gram, "~> 0.57"}
     ]
   end
 

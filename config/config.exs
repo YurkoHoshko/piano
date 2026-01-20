@@ -57,5 +57,6 @@ config :piano, :telegram,
 
 # ExGram configuration
 config :ex_gram, token: System.get_env("TELEGRAM_BOT_TOKEN")
+config :ex_gram, adapter: ExGram.Adapter.Req
 
 import_config "#{config_env()}.exs"
