@@ -232,6 +232,58 @@ defmodule Piano.TelegramFlowTest do
       assert_receive {:second_chunk_sent, second_len}, 2000
       assert second_len > 0
     end
+
+    test "appends tool calls and sends drawer", %{agent: _agent} do
+      chat_id = 222_333_444
+      test_pid = self()
+      placeholder_message_id = 4242
+
+      Piano.LLM.Mock
+      |> expect(:complete, fn _messages, _tools, _opts ->
+        {:ok, build_response(@mock_response)}
+      end)
+
+      Piano.Telegram.API.Mock
+      |> stub(:send_chat_action, fn _chat_id, "typing", _opts ->
+        {:ok, %{}}
+      end)
+      |> stub(:send_message, fn ^chat_id, text, opts ->
+        send(test_pid, {:send_message, text, opts})
+
+        if text == "⏳ Processing..." do
+          {:ok, %{message_id: placeholder_message_id}}
+        else
+          {:ok, %{}}
+        end
+      end)
+      |> stub(:edit_message_text, fn ^chat_id, ^placeholder_message_id, content, _opts ->
+        send(test_pid, {:message_edited, content})
+        {:ok, %{}}
+      end)
+
+      mock_msg = %{chat: %{id: chat_id}}
+
+      Bot.handle({:text, "Show tools", mock_msg}, nil)
+
+      Process.sleep(50)
+
+      thread_id = Piano.Telegram.SessionMapper.get_thread(chat_id)
+      assert is_binary(thread_id)
+
+      Piano.Events.broadcast(thread_id, {:tool_call, %{name: "bash", arguments: %{"command" => "ls"}}})
+
+      assert_receive {:message_edited, edited}, 2000
+      assert edited =~ "Tool calls so far"
+      assert edited =~ "bash(command=ls)"
+
+      assert_receive {:message_edited, final}, 2000
+      assert final =~ "Hello from the bot!"
+
+      assert_receive {:send_message, text, opts}, 2000
+      assert text =~ "<spoiler>Tool calls:"
+      assert text =~ "bash(command=ls)"
+      assert Keyword.get(opts, :parse_mode) == "HTML"
+    end
   end
 
   defp build_response(%{"choices" => [%{"message" => %{"content" => content}} | _]}) do

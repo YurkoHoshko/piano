@@ -1,5 +1,7 @@
 import Config
 
+config :piano, dev_routes: true
+
 config :piano, Piano.Repo,
   database: Path.expand("../piano_dev.db", __DIR__),
   pool_size: 5,

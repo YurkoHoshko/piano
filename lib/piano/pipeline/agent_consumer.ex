@@ -35,7 +35,7 @@ defmodule Piano.Pipeline.AgentConsumer do
 
     with {:ok, agent} <- load_agent(agent_id),
          {:ok, messages} <- load_thread_messages(thread_id),
-         {:ok, response} <- call_llm(agent, messages),
+         {:ok, response} <- call_llm(agent, messages, thread_id),
          {:ok, agent_message} <- create_agent_message(thread_id, agent_id, response) do
       Events.broadcast(thread_id, {:response_ready, agent_message})
       Logger.info("Successfully processed message #{message_id}")
@@ -68,14 +68,14 @@ defmodule Piano.Pipeline.AgentConsumer do
 
   @max_tool_iterations 5
 
-  defp call_llm(agent, messages) do
+  defp call_llm(agent, messages, thread_id) do
     system_prompt = build_system_prompt(agent)
     llm_messages = build_llm_messages(system_prompt, messages)
     tools = ToolRegistry.get_tools(agent.enabled_tools)
 
     case LLM.complete(llm_messages, tools, model: agent.model) do
       {:ok, response} ->
-        handle_llm_response(response, tools, llm_messages, agent, 0)
+        handle_llm_response(response, tools, llm_messages, agent, thread_id, 0)
 
       {:error, _} = error ->
         error
@@ -109,18 +109,14 @@ defmodule Piano.Pipeline.AgentConsumer do
     Context.new([Context.system(system_prompt) | history])
   end
 
-  defp handle_llm_response(response, tools, llm_messages, agent, iteration) do
+  defp handle_llm_response(response, tools, llm_messages, agent, thread_id, iteration) do
     tool_calls = LLM.extract_tool_calls(response)
 
     cond do
       Enum.empty?(tool_calls) ->
         content = normalize_content(LLM.extract_content(response))
 
-        if content == "" do
-          Logger.warning("LLM returned empty content with no tool calls")
-        end
-
-        {:ok, content}
+        {:ok, ensure_non_empty_content(content, response)}
 
       iteration >= @max_tool_iterations ->
         Logger.warning("Max tool iterations (#{@max_tool_iterations}) reached, returning partial response")
@@ -128,14 +124,14 @@ defmodule Piano.Pipeline.AgentConsumer do
           LLM.extract_content(response) ||
             "I attempted to use tools but reached the maximum number of iterations."
 
-        {:ok, normalize_content(content)}
+        {:ok, ensure_non_empty_content(normalize_content(content), response)}
 
       true ->
-        execute_tool_calls_and_continue(response, tool_calls, tools, llm_messages, agent, iteration)
+        execute_tool_calls_and_continue(response, tool_calls, tools, llm_messages, agent, thread_id, iteration)
     end
   end
 
-  defp execute_tool_calls_and_continue(response, tool_calls, tools, llm_messages, agent, iteration) do
+  defp execute_tool_calls_and_continue(response, tool_calls, tools, llm_messages, agent, thread_id, iteration) do
     base_context =
       case response do
         %ReqLLM.Response{context: %ReqLLM.Context{} = ctx} -> ctx
@@ -145,11 +141,11 @@ defmodule Piano.Pipeline.AgentConsumer do
     updated_context =
       base_context
       |> maybe_append_assistant(response, tool_calls)
-      |> append_tool_results(tool_calls, tools)
+      |> append_tool_results(thread_id, tool_calls, tools)
 
     case LLM.complete(updated_context, tools, model: agent.model) do
       {:ok, new_response} ->
-        handle_llm_response(new_response, tools, updated_context, agent, iteration + 1)
+        handle_llm_response(new_response, tools, updated_context, agent, thread_id, iteration + 1)
 
       {:error, _} = error ->
         error
@@ -172,11 +168,12 @@ defmodule Piano.Pipeline.AgentConsumer do
     Context.append(context, assistant_msg)
   end
 
-  defp append_tool_results(%Context{} = context, tool_calls, tools) do
+  defp append_tool_results(%Context{} = context, thread_id, tool_calls, tools) do
     Enum.reduce(tool_calls, context, fn call, ctx ->
       {name, id, args} = normalize_tool_call(call)
 
       Logger.debug("Executing tool #{name} with args: #{inspect(args)}")
+      Events.broadcast(thread_id, {:tool_call, %{name: name, arguments: args}})
 
       result =
         case Enum.find(tools, fn t -> t.name == name end) do
@@ -237,6 +234,35 @@ defmodule Piano.Pipeline.AgentConsumer do
   defp normalize_content(nil), do: ""
   defp normalize_content(content) when is_binary(content), do: content
   defp normalize_content(content), do: to_string(content)
+
+  defp ensure_non_empty_content("", response) do
+    log_llm_empty_response(response)
+    empty_response_message(response)
+  end
+
+  defp ensure_non_empty_content(content, _response), do: content
+
+  defp log_llm_empty_response(%Response{} = response) do
+    Logger.warning(
+      "LLM returned empty content (finish_reason=#{inspect(response.finish_reason)}, usage=#{inspect(response.usage)}, error=#{inspect(response.error)})"
+    )
+  end
+
+  defp log_llm_empty_response(_response) do
+    Logger.warning("LLM returned empty content (no response metadata)")
+  end
+
+  defp empty_response_message(%Response{} = response) do
+    reason =
+      case response.finish_reason do
+        nil -> "unknown"
+        reason -> to_string(reason)
+      end
+
+    "LLM returned empty content (finish_reason=#{reason})."
+  end
+
+  defp empty_response_message(_response), do: "LLM returned empty content."
 
   defp normalize_args(nil), do: %{}
 

@@ -354,10 +354,10 @@ defmodule Piano.Telegram.Bot do
   end
 
   defp wait_for_response(chat_id, thread_id, token, placeholder_message_id) do
-    wait_for_response(chat_id, thread_id, token, placeholder_message_id, 0)
+    wait_for_response(chat_id, thread_id, token, placeholder_message_id, 0, [])
   end
 
-  defp wait_for_response(chat_id, thread_id, token, placeholder_message_id, elapsed) do
+  defp wait_for_response(chat_id, thread_id, token, placeholder_message_id, elapsed, tool_calls) do
     remaining = 120_000 - elapsed
     timeout = min(@still_working_timeout, remaining)
 
@@ -374,10 +374,15 @@ defmodule Piano.Telegram.Bot do
 
         {:processing_started, _message_id} ->
           API.send_chat_action(chat_id, "typing", token: token)
-          wait_for_response(chat_id, thread_id, token, placeholder_message_id, elapsed)
+          wait_for_response(chat_id, thread_id, token, placeholder_message_id, elapsed, tool_calls)
+
+        {:tool_call, tool_call} ->
+          updated_tool_calls = tool_calls ++ [tool_call]
+          send_or_edit(chat_id, placeholder_message_id, tool_calls_placeholder(updated_tool_calls), token)
+          wait_for_response(chat_id, thread_id, token, placeholder_message_id, elapsed, updated_tool_calls)
 
         {:response_ready, agent_message} ->
-          send_long_response(chat_id, placeholder_message_id, agent_message.content, token)
+          send_long_response(chat_id, placeholder_message_id, agent_message.content, token, tool_calls)
           Events.unsubscribe(thread_id)
           :ok
 
@@ -392,7 +397,7 @@ defmodule Piano.Telegram.Bot do
           if elapsed + timeout < 120_000 do
             send_or_edit(chat_id, placeholder_message_id, "⏳ Still working...", token)
             API.send_chat_action(chat_id, "typing", token: token)
-            wait_for_response(chat_id, thread_id, token, placeholder_message_id, elapsed + timeout)
+            wait_for_response(chat_id, thread_id, token, placeholder_message_id, elapsed + timeout, tool_calls)
           else
             Logger.warning("Response timeout for thread #{thread_id}")
             send_or_edit(chat_id, placeholder_message_id, "Sorry, the request timed out. Please try again.", token)
@@ -417,7 +422,7 @@ defmodule Piano.Telegram.Bot do
     end
   end
 
-  defp send_long_response(chat_id, placeholder_message_id, content, token) do
+  defp send_long_response(chat_id, placeholder_message_id, content, token, tool_calls) do
     chunks = split_message(content)
 
     case chunks do
@@ -431,6 +436,10 @@ defmodule Piano.Telegram.Bot do
           Process.sleep(100)
           API.send_message(chat_id, chunk, token: token, parse_mode: "Markdown")
         end)
+    end
+
+    if tool_calls != [] do
+      send_tool_calls_drawer(chat_id, tool_calls, token)
     end
   end
 
@@ -507,6 +516,68 @@ defmodule Piano.Telegram.Bot do
       _ ->
         "❌ Sorry, I encountered an error processing your message."
     end
+  end
+
+  defp tool_calls_placeholder(tool_calls) do
+    header = "⏳ Processing..."
+    preview = format_tool_calls_preview(tool_calls)
+
+    if preview == "" do
+      header
+    else
+      "#{header}\n\nTool calls so far:\n#{preview}"
+    end
+  end
+
+  defp format_tool_calls_preview(tool_calls) do
+    tool_calls
+    |> Enum.take(-8)
+    |> Enum.map_join("\n", &format_tool_call_line/1)
+    |> String.slice(0, 1500)
+  end
+
+  defp format_tool_call_line(%{name: name, arguments: args}) when is_map(args) do
+    rendered =
+      args
+      |> Enum.filter(fn {key, value} ->
+        key in ["command", "path", "url", "query", "file", "name"] and value != nil
+      end)
+      |> Enum.map(fn {key, value} -> "#{key}=#{format_tool_call_value(value)}" end)
+      |> Enum.join(", ")
+
+    if rendered == "" do
+      "- #{name}()"
+    else
+      "- #{name}(#{rendered})"
+    end
+  end
+
+  defp format_tool_call_line(%{name: name}), do: "- #{name}()"
+  defp format_tool_call_line(_), do: "- tool_call()"
+
+  defp format_tool_call_value(value) when is_binary(value) do
+    value
+    |> String.replace("\n", " ")
+    |> String.slice(0, 120)
+  end
+
+  defp format_tool_call_value(value), do: inspect(value, limit: 2, printable_limit: 120)
+
+  defp send_tool_calls_drawer(chat_id, tool_calls, token) do
+    body =
+      tool_calls
+      |> Enum.map_join("\n", &format_tool_call_line/1)
+      |> html_escape()
+
+    text = "<spoiler>Tool calls:\n#{body}</spoiler>"
+    API.send_message(chat_id, text, token: token, parse_mode: "HTML")
+  end
+
+  defp html_escape(text) do
+    text
+    |> String.replace("&", "&amp;")
+    |> String.replace("<", "&lt;")
+    |> String.replace(">", "&gt;")
   end
 
   defp ensure_pending_requests_table do

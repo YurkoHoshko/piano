@@ -15,6 +15,8 @@ defmodule PianoWeb.ChatLive do
        threads: threads,
        agents: agents,
        messages: [],
+       tool_calls_buffer: [],
+       tool_calls_by_message_id: %{},
        thread_id: nil,
        selected_agent_id: nil,
        input_value: "",
@@ -106,6 +108,8 @@ defmodule PianoWeb.ChatLive do
      socket
      |> assign(:thread_id, nil)
      |> assign(:messages, [])
+     |> assign(:tool_calls_buffer, [])
+     |> assign(:tool_calls_by_message_id, %{})
      |> assign(:thinking, false)
      |> push_patch(to: ~p"/chat")}
   end
@@ -133,9 +137,19 @@ defmodule PianoWeb.ChatLive do
   end
 
   def handle_info({:response_ready, message}, socket) do
+    tool_calls = socket.assigns.tool_calls_buffer
+
     {:noreply,
      socket
      |> assign(:thinking, false)
+     |> assign(:tool_calls_buffer, [])
+     |> update(:tool_calls_by_message_id, fn map ->
+       if tool_calls == [] do
+         map
+       else
+         Map.put(map, message.id, tool_calls)
+       end
+     end)
      |> update(:messages, &(&1 ++ [message]))}
   end
 
@@ -143,7 +157,12 @@ defmodule PianoWeb.ChatLive do
     {:noreply,
      socket
      |> assign(:thinking, false)
+     |> assign(:tool_calls_buffer, [])
      |> put_flash(:error, "Failed to get response")}
+  end
+
+  def handle_info({:tool_call, tool_call}, socket) do
+    {:noreply, update(socket, :tool_calls_buffer, &(&1 ++ [tool_call]))}
   end
 
   defp load_threads do
@@ -173,6 +192,8 @@ defmodule PianoWeb.ChatLive do
         socket
         |> assign(:thread_id, thread_id)
         |> assign(:messages, messages)
+        |> assign(:tool_calls_buffer, [])
+        |> assign(:tool_calls_by_message_id, %{})
         |> assign(:thinking, false)
         |> assign(:selected_agent_id, thread.primary_agent_id)
 
@@ -240,9 +261,25 @@ defmodule PianoWeb.ChatLive do
             </div>
           <% else %>
             <%= for message <- @messages do %>
-              <.message_bubble message={message} show_fork={@thread_id != nil} agents={@agents} />
+              <.message_bubble
+                message={message}
+                show_fork={@thread_id != nil}
+                agents={@agents}
+                tool_calls={Map.get(@tool_calls_by_message_id, message.id, [])}
+              />
             <% end %>
           <% end %>
+
+          <div :if={@thinking and @tool_calls_buffer != []} class="text-gray-300 text-sm">
+            <details open class="bg-gray-800 rounded-lg px-4 py-3 border border-gray-700">
+              <summary class="cursor-pointer">Tool calls</summary>
+              <ul class="mt-2 space-y-1">
+                <%= for call <- @tool_calls_buffer do %>
+                  <li class="font-mono text-xs break-all"><%= format_tool_call(call) %></li>
+                <% end %>
+              </ul>
+            </details>
+          </div>
 
           <div :if={@thinking} class="flex items-center gap-2 text-gray-400" data-testid="thinking-indicator">
             <div class="flex gap-1">
@@ -321,6 +358,14 @@ defmodule PianoWeb.ChatLive do
           <%= if @message.role == :user, do: "You", else: @agent_name || "Assistant" %>
         </div>
         <div class="whitespace-pre-wrap" data-testid="message-content"><%= @message.content %></div>
+        <details :if={@message.role == :agent and @tool_calls != []} class="mt-3 text-xs text-gray-300">
+          <summary class="cursor-pointer">Tool calls</summary>
+          <ul class="mt-2 space-y-1">
+            <%= for call <- @tool_calls do %>
+              <li class="font-mono break-all"><%= format_tool_call(call) %></li>
+            <% end %>
+          </ul>
+        </details>
       </div>
       <button
         :if={@show_fork}
@@ -339,4 +384,31 @@ defmodule PianoWeb.ChatLive do
     </div>
     """
   end
+
+  defp format_tool_call(%{name: name, arguments: args}) when is_map(args) do
+    rendered =
+      args
+      |> Enum.filter(fn {key, value} ->
+        key in ["command", "path", "url", "query", "file", "name"] and value != nil
+      end)
+      |> Enum.map(fn {key, value} -> "#{key}=#{format_tool_call_value(value)}" end)
+      |> Enum.join(", ")
+
+    if rendered == "" do
+      "#{name}()"
+    else
+      "#{name}(#{rendered})"
+    end
+  end
+
+  defp format_tool_call(%{name: name}), do: "#{name}()"
+  defp format_tool_call(_), do: "tool_call()"
+
+  defp format_tool_call_value(value) when is_binary(value) do
+    value
+    |> String.replace("\n", " ")
+    |> String.slice(0, 120)
+  end
+
+  defp format_tool_call_value(value), do: inspect(value, limit: 2, printable_limit: 120)
 end

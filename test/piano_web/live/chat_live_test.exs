@@ -4,7 +4,7 @@ defmodule PianoWeb.ChatLiveTest do
   import Mox
 
   alias Piano.Agents.Agent
-  alias Piano.Chat.Thread
+  alias Piano.Chat.{Message, Thread}
 
   setup :set_mox_global
   setup :verify_on_exit!
@@ -123,6 +123,33 @@ defmodule PianoWeb.ChatLiveTest do
 
       refute has_element?(view, "[data-testid='thinking-indicator']")
       assert has_element?(view, "[data-testid='message-agent']")
+    end
+
+    test "shows tool calls while thinking and after response", %{conn: conn, agent: agent} do
+      {:ok, thread} =
+        Ash.create(Thread, %{title: "Tool Call Thread", primary_agent_id: agent.id}, action: :create)
+
+      {:ok, view, _html} = live(conn, "/chat?thread=#{thread.id}")
+
+      send(view.pid, {:processing_started, "message-1"})
+      send(view.pid, {:tool_call, %{name: "bash", arguments: %{"command" => "ls"}}})
+
+      assert render(view) =~ "Tool calls"
+      assert render(view) =~ "bash(command=ls)"
+
+      message = %Message{
+        id: "message-1",
+        content: "Done",
+        role: :agent,
+        source: :web,
+        thread_id: thread.id,
+        agent_id: agent.id
+      }
+
+      send(view.pid, {:response_ready, message})
+
+      assert render(view) =~ "Tool calls"
+      assert render(view) =~ "bash(command=ls)"
     end
   end
 

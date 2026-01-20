@@ -1,6 +1,8 @@
 defmodule PianoWeb.Router do
   use PianoWeb, :router
 
+  import Phoenix.LiveDashboard.Router
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -8,6 +10,10 @@ defmodule PianoWeb.Router do
     plug :put_root_layout, html: {PianoWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+  end
+
+  pipeline :admin do
+    plug PianoWeb.AdminAuth
   end
 
   pipeline :api do
@@ -22,9 +28,22 @@ defmodule PianoWeb.Router do
   end
 
   scope "/admin", PianoWeb.Admin do
-    pipe_through :browser
+    pipe_through [:browser, :admin]
 
     live "/agents", AgentListLive
     live "/agents/:id", AgentEditLive
+  end
+
+  if Application.compile_env(:piano, :dev_routes) do
+    scope "/" do
+      pipe_through [:browser, :admin]
+
+      live_dashboard "/dashboard",
+        metrics: PianoWeb.Telemetry,
+        ecto_repos: [Piano.Repo],
+        additional_pages: [
+          agents: PianoWeb.Admin.AgentsPage
+        ]
+    end
   end
 end
