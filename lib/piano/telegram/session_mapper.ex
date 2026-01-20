@@ -84,6 +84,18 @@ defmodule Piano.Telegram.SessionMapper do
     end
   end
 
+  @doc """
+  Gets the current agent_id for a chat, or nil if none exists.
+  """
+  @spec get_agent(integer()) :: String.t() | nil
+  def get_agent(chat_id) do
+    case get_session(chat_id) do
+      {:ok, %{agent_id: agent_id}} -> agent_id
+      {:ok, nil} -> nil
+      {:error, _} -> nil
+    end
+  end
+
   defp get_session(chat_id) do
     Session
     |> Ash.Query.for_read(:by_chat_id, %{chat_id: chat_id})

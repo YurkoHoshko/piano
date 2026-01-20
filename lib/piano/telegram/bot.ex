@@ -23,6 +23,7 @@ defmodule Piano.Telegram.Bot do
   command("history")
   command("delete")
   command("cancel")
+  command("agents")
 
   # Telegram message character limit
   @max_message_length 4096
@@ -204,6 +205,31 @@ defmodule Piano.Telegram.Bot do
 
       [] ->
         answer(context, "No pending request to cancel.")
+    end
+  end
+
+  def handle({:command, :agents, msg}, context) do
+    chat_id = msg.chat.id
+    active_agent_id = SessionMapper.get_agent(chat_id)
+
+    case Ash.read(Piano.Agents.Agent, action: :list) do
+      {:ok, []} ->
+        answer(context, "No agents configured yet.")
+
+      {:ok, agents} ->
+        agent_list =
+          Enum.map_join(agents, "\n", fn agent ->
+            is_active = agent.id == active_agent_id
+            status = if is_active, do: " _(active)_", else: ""
+            description = agent.description || "No description"
+            "🤖 *#{agent.name}*#{status}\n   #{description}"
+          end)
+
+        message = "📋 *Available Agents*\n\n#{agent_list}"
+        answer(context, message, parse_mode: "Markdown")
+
+      {:error, _reason} ->
+        answer(context, "Failed to load agents.")
     end
   end
 

@@ -667,3 +667,25 @@ Task ID: 46
 - Consider opening upstream issue on agentjido/req_llm for splode 0.3 compatibility
 
 ---
+
+## 2026-01-19 - US-010: Add /agents command to Telegram bot
+Thread: https://ampcode.com/threads/T-019bd97e-aa51-71de-ae52-8571bd3317ec
+Task ID: 39
+- Added command("agents") to Bot module command declarations
+- Added handler for /agents command that queries Ash.read(Agent, action: :list)
+- Shows active agent marked with _(active)_ suffix for current chat
+- Format: 🤖 AgentName (active) with description on next line
+- Added get_agent/1 function to SessionMapper to retrieve current agent_id from session
+- Handles empty agent list gracefully with "No agents configured yet." message
+- mix compile --warnings-as-errors passes, mix test passes (34 tests)
+
+**Files changed:**
+- lib/piano/telegram/bot.ex - Added /agents command declaration and handler
+- lib/piano/telegram/session_mapper.ex - Added get_agent/1 function
+
+**Learnings for future iterations:**
+- Ash.read(Resource, action: :action_name) is the simple form for read actions
+- Session mapper pattern: get_session/1 private function returns full session, public functions extract specific fields
+- Markdown formatting in Telegram: use *bold* and _italic_ with parse_mode: "Markdown"
+
+---
