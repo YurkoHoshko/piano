@@ -52,6 +52,8 @@ defmodule Piano.LLM.Impl do
   @moduledoc false
   @behaviour Piano.LLM
 
+  require Logger
+
   @impl true
   def complete(messages, tools, opts) do
     config = Application.get_env(:piano, :llm, [])
@@ -66,17 +68,27 @@ defmodule Piano.LLM.Impl do
       }
       |> maybe_add_tools(tools)
 
+    Logger.debug("LLM request to #{model} with #{length(messages)} messages")
+
+    if Map.has_key?(body, :tools) do
+      tool_names = Enum.map(body.tools, & &1.function.name)
+      Logger.debug("Tools enabled: #{inspect(tool_names)}")
+    end
+
     case Req.post("#{base_url}/v1/chat/completions",
            json: body,
            receive_timeout: 120_000
          ) do
       {:ok, %{status: 200, body: response_body}} ->
+        Logger.debug("LLM response received")
         {:ok, response_body}
 
       {:ok, %{status: status, body: body}} ->
+        Logger.error("LLM HTTP error: #{status}")
         {:error, {:http_error, status, body}}
 
       {:error, reason} ->
+        Logger.error("LLM request failed: #{inspect(reason)}")
         {:error, reason}
     end
   end
@@ -96,6 +108,8 @@ defmodule Piano.LLM.Impl do
         }
       end)
 
-    Map.put(body, :tools, formatted_tools)
+    body
+    |> Map.put(:tools, formatted_tools)
+    |> Map.put(:tool_choice, "auto")
   end
 end
