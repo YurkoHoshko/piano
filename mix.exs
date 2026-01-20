@@ -27,6 +27,7 @@ defmodule Piano.MixProject do
 
   defp deps do
     [
+      {:tidewave, "~> 0.5", only: :dev},
       {:phoenix, "~> 1.7"},
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_reload, "~> 1.5", only: :dev},
@@ -58,7 +59,7 @@ defmodule Piano.MixProject do
       {:lazy_html, ">= 0.1.0", only: :test},
 
       # Telegram
-      {:ex_gram, "~> 0.57"}
+      {:ex_gram, "~> 0.57"},
     ]
   end
 

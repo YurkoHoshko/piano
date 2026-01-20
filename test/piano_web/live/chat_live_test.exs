@@ -36,7 +36,7 @@ defmodule PianoWeb.ChatLiveTest do
     test "user can send message and see it appear", %{conn: conn} do
       Piano.LLM.Mock
       |> expect(:complete, fn _messages, _tools, _opts ->
-        {:ok, @mock_response}
+        {:ok, build_response(@mock_response)}
       end)
 
       {:ok, view, _html} = live(conn, "/chat")
@@ -60,7 +60,7 @@ defmodule PianoWeb.ChatLiveTest do
     test "user can create new thread via button", %{conn: conn} do
       Piano.LLM.Mock
       |> expect(:complete, fn _messages, _tools, _opts ->
-        {:ok, @mock_response}
+        {:ok, build_response(@mock_response)}
       end)
 
       {:ok, view, _html} = live(conn, "/chat")
@@ -106,7 +106,7 @@ defmodule PianoWeb.ChatLiveTest do
       |> expect(:complete, fn _messages, _tools, _opts ->
         send(test_pid, :llm_called)
         Process.sleep(200)
-        {:ok, @mock_response}
+        {:ok, build_response(@mock_response)}
       end)
 
       {:ok, view, _html} = live(conn, "/chat")
@@ -124,5 +124,10 @@ defmodule PianoWeb.ChatLiveTest do
       refute has_element?(view, "[data-testid='thinking-indicator']")
       assert has_element?(view, "[data-testid='message-agent']")
     end
+  end
+
+  defp build_response(%{"choices" => [%{"message" => %{"content" => content}} | _]}) do
+    msg = ReqLLM.Context.assistant(content)
+    %ReqLLM.Response{message: msg, context: ReqLLM.Context.new([msg])}
   end
 end

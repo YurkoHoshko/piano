@@ -40,7 +40,7 @@ defmodule Piano.ChatFlowTest do
     test "creates thread, sends message, receives agent response", %{agent: agent} do
       Piano.LLM.Mock
       |> expect(:complete, fn _messages, _tools, _opts ->
-        {:ok, @mock_response}
+        {:ok, build_response(@mock_response)}
       end)
 
       {:ok, user_message} =
@@ -74,7 +74,7 @@ defmodule Piano.ChatFlowTest do
     test "broadcasts PubSub events during processing", %{agent: agent} do
       Piano.LLM.Mock
       |> expect(:complete, fn _messages, _tools, _opts ->
-        {:ok, @mock_response}
+        {:ok, build_response(@mock_response)}
       end)
 
       {:ok, user_message} =
@@ -105,7 +105,7 @@ defmodule Piano.ChatFlowTest do
     test "stores messages in database correctly", %{agent: agent} do
       Piano.LLM.Mock
       |> expect(:complete, fn _messages, _tools, _opts ->
-        {:ok, @mock_response}
+        {:ok, build_response(@mock_response)}
       end)
 
       {:ok, user_message} =
@@ -127,5 +127,10 @@ defmodule Piano.ChatFlowTest do
       assert agent_msg != nil
       assert agent_msg.content == "Hello! I'm your AI assistant. How can I help you today?"
     end
+  end
+
+  defp build_response(%{"choices" => [%{"message" => %{"content" => content}} | _]}) do
+    msg = ReqLLM.Context.assistant(content)
+    %ReqLLM.Response{message: msg, context: ReqLLM.Context.new([msg])}
   end
 end

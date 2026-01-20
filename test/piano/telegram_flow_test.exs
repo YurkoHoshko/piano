@@ -48,7 +48,7 @@ defmodule Piano.TelegramFlowTest do
 
       Piano.LLM.Mock
       |> expect(:complete, fn _messages, _tools, _opts ->
-        {:ok, @mock_response}
+        {:ok, build_response(@mock_response)}
       end)
 
       Piano.Telegram.API.Mock
@@ -93,7 +93,7 @@ defmodule Piano.TelegramFlowTest do
 
       Piano.LLM.Mock
       |> expect(:complete, fn _messages, _tools, _opts ->
-        {:ok, @mock_response}
+        {:ok, build_response(@mock_response)}
       end)
 
       Piano.Telegram.API.Mock
@@ -158,7 +158,7 @@ defmodule Piano.TelegramFlowTest do
 
       Piano.LLM.Mock
       |> expect(:complete, fn _messages, _tools, _opts ->
-        {:ok, @mock_response}
+        {:ok, build_response(@mock_response)}
       end)
 
       Piano.Telegram.API.Mock
@@ -204,7 +204,7 @@ defmodule Piano.TelegramFlowTest do
 
       Piano.LLM.Mock
       |> expect(:complete, fn _messages, _tools, _opts ->
-        {:ok, mock_response}
+        {:ok, build_response(mock_response)}
       end)
 
       Piano.Telegram.API.Mock
@@ -232,5 +232,10 @@ defmodule Piano.TelegramFlowTest do
       assert_receive {:second_chunk_sent, second_len}, 2000
       assert second_len > 0
     end
+  end
+
+  defp build_response(%{"choices" => [%{"message" => %{"content" => content}} | _]}) do
+    msg = ReqLLM.Context.assistant(content)
+    %ReqLLM.Response{message: msg, context: ReqLLM.Context.new([msg])}
   end
 end

@@ -17,6 +17,10 @@ defmodule PianoWeb.Endpoint do
     from: :piano,
     gzip: false,
     only: PianoWeb.static_paths()
+    
+  if Code.ensure_loaded?(Tidewave) do
+    plug Tidewave  
+  end
 
   if code_reloading? do
     socket "/phoenix/live_reload/socket", Phoenix.LiveReloader.Socket

@@ -6,17 +6,17 @@ defmodule Piano.Application do
   @impl true
   def start(_type, _args) do
     setup_admin_token()
+    log_dev_reload_status()
 
-    children =
-      [
-        PianoWeb.Telemetry,
-        Piano.Repo,
-        {DNSCluster, query: Application.get_env(:piano, :dns_cluster_query) || :ignore},
-        {Phoenix.PubSub, name: Piano.PubSub},
-        Piano.Pipeline.MessageProducer,
-        Piano.Pipeline.AgentConsumer,
-        PianoWeb.Endpoint
-      ] ++ telegram_children()
+    children = [
+      PianoWeb.Telemetry,
+      Piano.Repo,
+      {DNSCluster, query: Application.get_env(:piano, :dns_cluster_query) || :ignore},
+      {Phoenix.PubSub, name: Piano.PubSub},
+      Piano.Pipeline.MessageProducer,
+      Piano.Pipeline.AgentConsumer,
+      PianoWeb.Endpoint
+    ] ++ telegram_children()
 
     opts = [strategy: :one_for_one, name: Piano.Supervisor]
     Supervisor.start_link(children, opts)
@@ -77,4 +77,21 @@ defmodule Piano.Application do
     ═══════════════════════════════════════════════════════════════
     """)
   end
+
+  defp log_dev_reload_status do
+    endpoint_config = Application.get_env(:piano, PianoWeb.Endpoint, [])
+    code_reloader = Keyword.get(endpoint_config, :code_reloader, false)
+    live_reload_started = match?({:ok, _}, Application.ensure_all_started(:phoenix_live_reload))
+
+    IO.puts("""
+
+    ═══════════════════════════════════════════════════════════════
+    🔁 Dev Reload Status
+    ═══════════════════════════════════════════════════════════════
+    code_reloader: #{code_reloader}
+    phoenix_live_reload started: #{live_reload_started}
+    ═══════════════════════════════════════════════════════════════
+    """)
+  end
+
 end
