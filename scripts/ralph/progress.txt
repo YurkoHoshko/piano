@@ -648,3 +648,22 @@ Task ID: 51
 - Test isolation with async: false requires explicit cleanup (ETS delete_all_objects)
 
 ---
+
+## 2026-01-19 - US-017: Add ReqLLM dependency
+Thread: https://ampcode.com/threads/T-019bd97a-4e0d-716c-90fe-9968b5234d6c
+Task ID: 46
+- BLOCKED: ReqLLM ~> 1.2 requires splode ~> 0.2.3, but Ash 3.13.1 requires splode ~> 0.3
+- These versions are incompatible - no version of req_llm can be installed with current Ash
+- Investigated all req_llm versions (1.0.0 through 1.2.0) - all have same splode 0.2.x dependency
+- Current Piano.LLM implementation using Req directly works well for llama-swap OpenAI-compatible API
+- Recommend waiting for req_llm to update splode dependency to ~> 0.3
+
+**Status:** Blocked - dependency conflict with Ash Framework
+
+**Learnings for future iterations:**
+- Check dependency trees before adding new libraries: mix deps.tree, mix deps.unlock <dep>
+- splode is an error handling library shared between Ash and ReqLLM with incompatible version requirements
+- Current Piano.LLM impl with Req.post works fine for OpenAI-compatible APIs like llama-swap
+- Consider opening upstream issue on agentjido/req_llm for splode 0.3 compatibility
+
+---
