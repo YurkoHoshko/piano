@@ -594,3 +594,29 @@ Task ID: 44
 - String.contains?(text, "confirm") for simple confirmation parsing
 
 ---
+
+## 2026-01-20 - US-021: Send placeholder message on Telegram
+Thread: https://ampcode.com/threads/T-019bd974-3434-7767-8046-5125c7efad98
+Task ID: 50
+- Added edit_message_text/4 callback and function to Piano.Telegram.API
+- Added edit_message_text/4 to Piano.Telegram.API.Impl using ExGram.edit_message_text
+- When user sends message, immediately send "⏳ Processing..." placeholder
+- Store the message_id from send_message response
+- When LLM response ready, edit placeholder with actual content via edit_message_text
+- Added send_or_edit/4 helper that edits if message_id exists, sends new if nil or edit fails
+- Updated wait_for_response/4 to use send_or_edit for all responses
+- Added new test case for fallback to send_message when edit fails
+- mix compile --warnings-as-errors passes, mix test passes (33 tests)
+
+**Files changed:**
+- lib/piano/telegram/api.ex - Added edit_message_text/4 callback, spec, and impl
+- lib/piano/telegram/bot.ex - Send placeholder, track message_id, use send_or_edit helper
+- test/piano/telegram_flow_test.exs - Updated tests to mock placeholder + edit flow, added fallback test
+
+**Learnings for future iterations:**
+- ExGram.edit_message_text takes text as first arg, chat_id/message_id in options
+- Pattern: send placeholder → store message_id → edit on response
+- send_or_edit helper pattern matches nil message_id for graceful fallback
+- When edit fails (e.g., message too old), fall back to sending new message
+
+---

@@ -193,7 +193,11 @@ defmodule Piano.Telegram.Bot do
     chat_id = msg.chat.id
     token = bot_token()
 
-    API.send_chat_action(chat_id, "typing", token: token)
+    placeholder_message_id =
+      case API.send_message(chat_id, "⏳ Processing...", token: token) do
+        {:ok, %{message_id: mid}} -> mid
+        _ -> nil
+      end
 
     case SessionMapper.get_or_create_thread(chat_id) do
       {:ok, thread_id} ->
@@ -203,17 +207,17 @@ defmodule Piano.Telegram.Bot do
           {:ok, message} ->
             spawn(fn ->
               Events.subscribe(message.thread_id)
-              wait_for_response(chat_id, message.thread_id, token)
+              wait_for_response(chat_id, message.thread_id, token, placeholder_message_id)
             end)
 
           {:error, reason} ->
             Logger.error("Failed to handle Telegram message: #{inspect(reason)}")
-            API.send_message(chat_id, "Sorry, something went wrong. Please try again.", token: token)
+            send_or_edit(chat_id, placeholder_message_id, "Sorry, something went wrong. Please try again.", token)
         end
 
       {:error, reason} ->
         Logger.error("Failed to get/create thread for chat #{chat_id}: #{inspect(reason)}")
-        API.send_message(chat_id, "Sorry, something went wrong. Please try again.", token: token)
+        send_or_edit(chat_id, placeholder_message_id, "Sorry, something went wrong. Please try again.", token)
     end
 
     :ok
@@ -233,25 +237,39 @@ defmodule Piano.Telegram.Bot do
     end
   end
 
-  defp wait_for_response(chat_id, thread_id, token) do
+  defp wait_for_response(chat_id, thread_id, token, placeholder_message_id) do
     receive do
       {:processing_started, _message_id} ->
         API.send_chat_action(chat_id, "typing", token: token)
-        wait_for_response(chat_id, thread_id, token)
+        wait_for_response(chat_id, thread_id, token, placeholder_message_id)
 
       {:response_ready, agent_message} ->
-        API.send_message(chat_id, agent_message.content, token: token)
+        send_or_edit(chat_id, placeholder_message_id, agent_message.content, token)
         Events.unsubscribe(thread_id)
 
       {:processing_error, _message_id, reason} ->
         Logger.error("Processing error for thread #{thread_id}: #{inspect(reason)}")
-        API.send_message(chat_id, "Sorry, I encountered an error processing your message.", token: token)
+        send_or_edit(chat_id, placeholder_message_id, "Sorry, I encountered an error processing your message.", token)
         Events.unsubscribe(thread_id)
     after
       120_000 ->
         Logger.warning("Response timeout for thread #{thread_id}")
-        API.send_message(chat_id, "Sorry, the request timed out. Please try again.", token: token)
+        send_or_edit(chat_id, placeholder_message_id, "Sorry, the request timed out. Please try again.", token)
         Events.unsubscribe(thread_id)
+    end
+  end
+
+  defp send_or_edit(chat_id, nil, text, token) do
+    API.send_message(chat_id, text, token: token)
+  end
+
+  defp send_or_edit(chat_id, message_id, text, token) do
+    case API.edit_message_text(chat_id, message_id, text, token: token) do
+      {:ok, _} ->
+        :ok
+
+      {:error, _reason} ->
+        API.send_message(chat_id, text, token: token)
     end
   end
 end
