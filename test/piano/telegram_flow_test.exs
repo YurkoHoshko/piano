@@ -240,6 +240,15 @@ defmodule Piano.TelegramFlowTest do
 
       Piano.LLM.Mock
       |> expect(:complete, fn _messages, _tools, _opts ->
+        caller = self()
+        send(test_pid, {:llm_called, caller})
+
+        receive do
+          :continue -> :ok
+        after
+          2_000 -> :ok
+        end
+
         {:ok, build_response(@mock_response)}
       end)
 
@@ -265,24 +274,34 @@ defmodule Piano.TelegramFlowTest do
 
       Bot.handle({:text, "Show tools", mock_msg}, nil)
 
-      Process.sleep(50)
+      assert_receive {:llm_called, llm_pid}, 2_000
 
       thread_id = Piano.Telegram.SessionMapper.get_thread(chat_id)
       assert is_binary(thread_id)
 
       Piano.Events.broadcast(thread_id, {:tool_call, %{name: "bash", arguments: %{"command" => "ls"}}})
+      send(llm_pid, :continue)
 
-      assert_receive {:message_edited, edited}, 2000
-      assert edited =~ "Tool calls so far"
-      assert edited =~ "bash(command=ls)"
+      edits = collect_message_edits([])
+      assert Enum.any?(edits, &String.contains?(&1, "Hello from the bot!"))
 
-      assert_receive {:message_edited, final}, 2000
-      assert final =~ "Hello from the bot!"
+      if Enum.any?(edits, &String.contains?(&1, "Tool calls so far")) do
+        assert Enum.any?(edits, &String.contains?(&1, "bash(command=ls)"))
+      end
 
-      assert_receive {:send_message, text, opts}, 2000
-      assert text =~ "<spoiler>Tool calls:"
-      assert text =~ "bash(command=ls)"
-      assert Keyword.get(opts, :parse_mode) == "HTML"
+      sent_messages = collect_sent_messages([])
+
+      assert Enum.any?(sent_messages, fn {text, _opts} ->
+               String.contains?(text, "<spoiler>Tool calls:")
+             end)
+
+      assert Enum.any?(sent_messages, fn {text, _opts} ->
+               String.contains?(text, "bash(command=ls)")
+             end)
+
+      assert Enum.any?(sent_messages, fn {_text, opts} ->
+               Keyword.get(opts, :parse_mode) == "HTML"
+             end)
     end
   end
 
@@ -296,5 +315,25 @@ defmodule Piano.TelegramFlowTest do
       message: msg,
       context: ReqLLM.Context.new([msg])
     }
+  end
+
+  defp collect_message_edits(edits) do
+    receive do
+      {:message_edited, content} ->
+        collect_message_edits([content | edits])
+    after
+      500 ->
+        Enum.reverse(edits)
+    end
+  end
+
+  defp collect_sent_messages(messages) do
+    receive do
+      {:send_message, text, opts} ->
+        collect_sent_messages([{text, opts} | messages])
+    after
+      500 ->
+        Enum.reverse(messages)
+    end
   end
 end

@@ -46,6 +46,25 @@ defmodule Piano.Agents.ToolRegistry do
         ]
       ],
       callback: &__MODULE__.execute_bash/1
+    ],
+    [
+      name: "edit_soul",
+      description:
+        "Edit your own soul (personality, directives, preferences). Use this to remember important context, update your behavior, or refine how you respond. Your soul persists across conversations.",
+      parameter_schema: [
+        action: [
+          type: :string,
+          required: true,
+          doc: "One of: 'read' (view current soul), 'append' (add to soul), 'replace' (overwrite soul)"
+        ],
+        content: [
+          type: :string,
+          required: false,
+          doc: "The content to append or replace (required for append/replace actions)"
+        ]
+      ],
+      callback: :execute_edit_soul,
+      requires_context: true
     ]
   ]
 
@@ -64,6 +83,17 @@ defmodule Piano.Agents.ToolRegistry do
   def get_tools(enabled_tool_names) when is_list(enabled_tool_names) do
     @tools
     |> Enum.filter(&(Keyword.fetch!(&1, :name) in enabled_tool_names))
+    |> Enum.map(fn tool ->
+      if Keyword.get(tool, :requires_context, false) do
+        callback = Keyword.fetch!(tool, :callback)
+
+        tool
+        |> Keyword.put(:callback, {__MODULE__, callback, [%{}]})
+        |> Keyword.drop([:requires_context])
+      else
+        Keyword.drop(tool, [:requires_context])
+      end
+    end)
     |> Enum.map(&ReqLLM.Tool.new!/1)
   end
 
@@ -175,6 +205,82 @@ defmodule Piano.Agents.ToolRegistry do
   end
 
   def execute_bash(_), do: {:error, "Missing required parameter: command"}
+
+  @doc """
+  Execute the edit_soul tool. Requires agent context.
+  """
+  @spec execute_edit_soul(map(), map()) :: {:ok, String.t()} | {:error, String.t()}
+  def execute_edit_soul(args, context) when is_map(args) and is_map(context) do
+    action = fetch_param(args, :action)
+    content = fetch_param(args, :content)
+    agent = Map.get(context, :agent)
+
+    cond do
+      is_nil(agent) ->
+        {:error, "Agent context not available"}
+
+      is_nil(action) ->
+        {:error, "Missing required parameter: action"}
+
+      action not in ["read", "append", "replace"] ->
+        {:error, "Invalid action. Must be one of: read, append, replace"}
+
+      action == "read" ->
+        soul = agent.soul || "(empty)"
+        {:ok, "Current soul:\n#{soul}"}
+
+      action in ["append", "replace"] and (is_nil(content) or content == "") ->
+        {:error, "Missing required parameter: content (required for #{action} action)"}
+
+      action == "append" ->
+        case Ash.update(agent, %{soul: content}, action: :append_soul) do
+          {:ok, updated} -> {:ok, "Soul updated. New soul:\n#{updated.soul}"}
+          {:error, error} -> {:error, "Failed to update soul: #{inspect(error)}"}
+        end
+
+      action == "replace" ->
+        case Ash.update(agent, %{soul: content}, action: :rewrite_soul) do
+          {:ok, updated} -> {:ok, "Soul replaced. New soul:\n#{updated.soul}"}
+          {:error, error} -> {:error, "Failed to replace soul: #{inspect(error)}"}
+        end
+    end
+  end
+
+  def execute_edit_soul(_, _), do: {:error, "Missing required parameter: action"}
+
+  @doc """
+  Check if a tool requires context (like agent info).
+  """
+  @spec requires_context?(String.t()) :: boolean()
+  def requires_context?(tool_name) do
+    @tools
+    |> Enum.find(&(Keyword.fetch!(&1, :name) == tool_name))
+    |> case do
+      nil -> false
+      tool -> Keyword.get(tool, :requires_context, false)
+    end
+  end
+
+  @doc """
+  Execute a tool by name with args and optional context.
+  """
+  @spec execute(String.t(), map(), map()) :: {:ok, any()} | {:error, String.t()}
+  def execute(tool_name, args, context \\ %{}) do
+    case Enum.find(@tools, &(Keyword.fetch!(&1, :name) == tool_name)) do
+      nil ->
+        {:error, "Unknown tool: #{tool_name}"}
+
+      tool ->
+        callback = Keyword.fetch!(tool, :callback)
+        requires_context = Keyword.get(tool, :requires_context, false)
+
+        if requires_context do
+          apply(__MODULE__, callback, [args, context])
+        else
+          callback.(args)
+        end
+    end
+  end
 
   defp fetch_param(args, key) when is_atom(key) do
     Map.get(args, key) || Map.get(args, Atom.to_string(key))

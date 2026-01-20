@@ -155,6 +155,13 @@ defmodule PianoWeb.ChatLiveTest do
 
   defp build_response(%{"choices" => [%{"message" => %{"content" => content}} | _]}) do
     msg = ReqLLM.Context.assistant(content)
-    %ReqLLM.Response{message: msg, context: ReqLLM.Context.new([msg])}
+    %ReqLLM.Response{
+      id: "test-response",
+      model: "test-model",
+      finish_reason: "stop",
+      usage: %{prompt_tokens: 1, completion_tokens: 1, total_tokens: 2},
+      message: msg,
+      context: ReqLLM.Context.new([msg])
+    }
   end
 end

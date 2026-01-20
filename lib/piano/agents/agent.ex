@@ -27,6 +27,10 @@ defmodule Piano.Agents.Agent do
       allow_nil? true
     end
 
+    attribute :soul, :string do
+      allow_nil? true
+    end
+
     attribute :enabled_tools, {:array, :string} do
       default []
       allow_nil? false
@@ -44,7 +48,7 @@ defmodule Piano.Agents.Agent do
     defaults [:read]
 
     create :create do
-      accept [:name, :description, :model, :system_prompt, :enabled_tools, :enabled_skills]
+      accept [:name, :description, :model, :system_prompt, :soul, :enabled_tools, :enabled_skills]
     end
 
     read :list do
@@ -52,7 +56,27 @@ defmodule Piano.Agents.Agent do
     end
 
     update :update_config do
-      accept [:name, :description, :model, :system_prompt, :enabled_tools, :enabled_skills]
+      accept [:name, :description, :model, :system_prompt, :soul, :enabled_tools, :enabled_skills]
+    end
+
+    update :append_soul do
+      require_atomic? false
+      accept [:soul]
+
+      change fn changeset, _context ->
+        incoming = Ash.Changeset.get_attribute(changeset, :soul) || ""
+        current = changeset.data.soul || ""
+        separator = if current == "" or incoming == "", do: "", else: "\n"
+        Ash.Changeset.force_change_attribute(changeset, :soul, current <> separator <> incoming)
+      end
+    end
+
+    update :edit_soul do
+      accept [:soul]
+    end
+
+    update :rewrite_soul do
+      accept [:soul]
     end
   end
 end

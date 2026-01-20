@@ -8,7 +8,7 @@ defmodule Piano.Pipeline.AgentConsumer do
 
   require Logger
 
-  alias Piano.Agents.{Agent, ToolRegistry, SkillRegistry}
+  alias Piano.Agents.{Agent, SystemPrompt, ToolRegistry}
   alias Piano.Chat.Message
   alias Piano.{Events, LLM}
   alias ReqLLM.{Context, Response, ToolCall}
@@ -37,6 +37,7 @@ defmodule Piano.Pipeline.AgentConsumer do
          {:ok, messages} <- load_thread_messages(thread_id),
          {:ok, response} <- call_llm(agent, messages, thread_id),
          {:ok, agent_message} <- create_agent_message(thread_id, agent_id, response) do
+      Logger.info("Processed message #{message_id} with agent #{agent.name} (#{agent.id})")
       Events.broadcast(thread_id, {:response_ready, agent_message})
       Logger.info("Successfully processed message #{message_id}")
     else
@@ -83,15 +84,7 @@ defmodule Piano.Pipeline.AgentConsumer do
   end
 
   defp build_system_prompt(agent) do
-    skill_prompts = SkillRegistry.get_prompts(agent.enabled_skills)
-
-    base_prompt = agent.system_prompt || "You are a helpful assistant."
-
-    if skill_prompts == "" do
-      base_prompt
-    else
-      "#{base_prompt}\n\n#{skill_prompts}"
-    end
+    SystemPrompt.build(agent)
   end
 
   defp build_llm_messages(system_prompt, messages) do
@@ -141,7 +134,7 @@ defmodule Piano.Pipeline.AgentConsumer do
     {updated_context, direct_response} =
       base_context
       |> maybe_append_assistant(response, tool_calls)
-      |> append_tool_results(thread_id, tool_calls, tools)
+      |> append_tool_results(thread_id, tool_calls, tools, agent)
 
     if direct_response do
       {:ok, normalize_content(direct_response)}
@@ -172,7 +165,7 @@ defmodule Piano.Pipeline.AgentConsumer do
     Context.append(context, assistant_msg)
   end
 
-  defp append_tool_results(%Context{} = context, thread_id, tool_calls, tools) do
+  defp append_tool_results(%Context{} = context, thread_id, tool_calls, tools, agent) do
     Enum.reduce(tool_calls, {context, nil}, fn call, {ctx, direct_response} ->
       {name, id, args} = normalize_tool_call(call)
 
@@ -181,8 +174,15 @@ defmodule Piano.Pipeline.AgentConsumer do
 
       result =
         case Enum.find(tools, fn t -> t.name == name end) do
-          nil -> {:error, "Unknown tool: #{name}"}
-          tool -> ReqLLM.Tool.execute(tool, args)
+          nil ->
+            {:error, "Unknown tool: #{name}"}
+
+          tool ->
+            if ToolRegistry.requires_context?(name) do
+              ToolRegistry.execute(name, args, %{agent: agent})
+            else
+              ReqLLM.Tool.execute(tool, args)
+            end
         end
 
       case result do

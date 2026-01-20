@@ -60,14 +60,15 @@ defmodule Piano.LLM.Impl do
     default_model = Keyword.get(config, :default_model, "gpt-oss-20b")
     provider = Keyword.get(config, :provider, "openai")
     api_key = Keyword.get(config, :api_key, System.get_env("LLM_API_KEY") || "local")
+    prefix_model = Keyword.get(config, :prefix_model, true)
     max_tokens = Keyword.get(config, :max_tokens)
     model = Keyword.get(opts, :model, default_model)
 
     with {:ok, context} <- normalize_context(context_or_messages) do
-      model_id = normalize_model_id(provider, model)
+      {model_spec, model_label} = normalize_model_spec(provider, model, prefix_model)
 
       Logger.debug(
-        "LLM request to #{model_id} with #{length(context.messages)} messages (base_url=#{base_url})"
+        "LLM request to #{model_label} with #{length(context.messages)} messages (base_url=#{base_url})"
       )
 
       generation_opts =
@@ -80,13 +81,13 @@ defmodule Piano.LLM.Impl do
         ]
         |> maybe_put_max_tokens(max_tokens)
 
-      ReqLLM.generate_text(model_id, context, generation_opts)
+      ReqLLM.generate_text(model_spec, context, generation_opts)
       |> case do
         {:ok, _} = ok ->
           ok
 
         {:error, reason} = err ->
-          Logger.error("LLM request failed (base_url=#{base_url}, model=#{model_id}): #{inspect(reason)}")
+          Logger.error("LLM request failed (base_url=#{base_url}, model=#{model_label}): #{inspect(reason)}")
           err
       end
     end
@@ -99,11 +100,33 @@ defmodule Piano.LLM.Impl do
   defp maybe_put_max_tokens(opts, nil), do: opts
   defp maybe_put_max_tokens(opts, max_tokens), do: Keyword.put(opts, :max_tokens, max_tokens)
 
-  defp normalize_model_id(provider, model) when is_binary(model) do
-    if String.contains?(model, ":") do
-      model
-    else
-      "#{provider}:#{model}"
+  defp normalize_model_spec(provider, model, prefix_model) when is_binary(model) do
+    cond do
+      String.contains?(model, ":") ->
+        {model, model}
+
+      prefix_model == false ->
+        model_struct = build_openai_compatible_model(provider, model)
+        {model_struct, model_struct.id}
+
+      provider in [nil, ""] ->
+        {model, model}
+
+      true ->
+        model_id = "#{provider}:#{model}"
+        {model_id, model_id}
     end
+  end
+
+  defp build_openai_compatible_model(provider, model) do
+    provider_atom =
+      case provider do
+        nil -> :openai
+        "" -> :openai
+        value when is_atom(value) -> value
+        value when is_binary(value) -> String.to_atom(value)
+      end
+
+    LLMDB.Model.new!(%{id: model, provider: provider_atom})
   end
 end

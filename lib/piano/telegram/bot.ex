@@ -218,16 +218,8 @@ defmodule Piano.Telegram.Bot do
         answer_with_menu(context, "No agents configured yet.")
 
       {:ok, agents} ->
-        agent_list =
-          Enum.map_join(agents, "\n", fn agent ->
-            is_active = agent.id == active_agent_id
-            status = if is_active, do: " _(active)_", else: ""
-            description = agent.description || "No description"
-            "🤖 *#{agent.name}*#{status}\n   #{description}"
-          end)
-
-        message = "📋 *Available Agents*\n\n#{agent_list}"
-        answer_with_menu(context, message, parse_mode: "Markdown")
+        message = agents_message(agents, active_agent_id)
+        answer(context, message, parse_mode: "Markdown", reply_markup: agents_keyboard(agents, active_agent_id))
 
       {:error, _reason} ->
         answer_with_menu(context, "Failed to load agents.")
@@ -243,6 +235,7 @@ defmodule Piano.Telegram.Bot do
           {:ok, agent} ->
             case SessionMapper.set_agent(chat_id, agent.id) do
               :ok ->
+                Logger.info("Telegram agent switch via /switch to #{agent.name} (#{agent.id})")
                 answer_with_menu(context, "✅ Switched to #{agent.name}")
 
               {:error, _reason} ->
@@ -261,7 +254,43 @@ defmodule Piano.Telegram.Bot do
         end
 
       :error ->
-        answer_with_menu(context, "Usage: /switch <agent_name>\n\nExample: /switch Assistant")
+        case Ash.read(Piano.Agents.Agent, action: :list) do
+          {:ok, agents} when agents != [] ->
+            active_agent_id = SessionMapper.get_agent(chat_id)
+            message = agents_message(agents, active_agent_id)
+            answer(context, message, parse_mode: "Markdown", reply_markup: agents_keyboard(agents, active_agent_id))
+
+          _ ->
+            answer_with_menu(context, "Usage: /switch <agent_name>\n\nExample: /switch Assistant")
+        end
+    end
+  end
+
+  def handle({:callback_query, callback_query}, _context) do
+    data = callback_query.data || ""
+
+    case parse_switch_callback(data) do
+      {:ok, agent_id} ->
+        Logger.info("Telegram callback switch to agent #{agent_id}")
+        chat_id = callback_query.message.chat.id
+
+        case SessionMapper.set_agent(chat_id, agent_id) do
+          :ok ->
+            Logger.info("Telegram agent switch success for chat #{chat_id}")
+            update_agents_message(callback_query, agent_id)
+            API.answer_callback_query(callback_query.id, text: "Switched agent.")
+            :ok
+
+          {:error, _reason} ->
+            Logger.warning("Telegram agent switch failed for chat #{chat_id}")
+            API.answer_callback_query(callback_query.id, text: "Failed to switch agent.")
+            :ok
+        end
+
+      :error ->
+        Logger.warning("Telegram callback query ignored: #{inspect(data)}")
+        API.answer_callback_query(callback_query.id, text: "Unknown action.")
+        :ok
     end
   end
 
@@ -281,7 +310,8 @@ defmodule Piano.Telegram.Bot do
 
     case SessionMapper.get_or_create_thread(chat_id) do
       {:ok, thread_id} ->
-        metadata = %{chat_id: chat_id, thread_id: thread_id}
+        agent_id = SessionMapper.get_agent(chat_id)
+        metadata = %{chat_id: chat_id, thread_id: thread_id, agent_id: agent_id}
 
         case ChatGateway.handle_incoming(text, :telegram, metadata) do
           {:ok, message} ->
@@ -335,6 +365,9 @@ defmodule Piano.Telegram.Bot do
         :error
     end
   end
+
+  defp parse_switch_callback("switch:" <> agent_id) when agent_id != "", do: {:ok, agent_id}
+  defp parse_switch_callback(_), do: :error
 
   defp find_agent_by_name(name) do
     case Ash.read(Piano.Agents.Agent, action: :list) do
@@ -511,18 +544,55 @@ defmodule Piano.Telegram.Bot do
       keyboard: [
         [
           %ExGram.Model.KeyboardButton{text: "/newthread"},
-          %ExGram.Model.KeyboardButton{text: "/history"},
-          %ExGram.Model.KeyboardButton{text: "/status"}
-        ],
-        [
-          %ExGram.Model.KeyboardButton{text: "/agents"},
-          %ExGram.Model.KeyboardButton{text: "/help"}
+          %ExGram.Model.KeyboardButton{text: "/agents"}
         ]
       ],
       resize_keyboard: true,
       one_time_keyboard: false,
       selective: false
     }
+  end
+
+  defp agents_message(agents, active_agent_id) do
+    agent_list =
+      Enum.map_join(agents, "\n", fn agent ->
+        is_active = agent.id == active_agent_id
+        status = if is_active, do: " _(active)_", else: ""
+        description = agent.description || "No description"
+        "🤖 *#{agent.name}*#{status}\n   #{description}"
+      end)
+
+    "📋 *Available Agents*\n\n#{agent_list}"
+  end
+
+  defp agents_keyboard(agents, active_agent_id) do
+    rows =
+      agents
+      |> Enum.map(fn agent ->
+        label =
+          if agent.id == active_agent_id do
+            "✅ #{agent.name}"
+          else
+            agent.name
+          end
+
+        %ExGram.Model.InlineKeyboardButton{text: label, callback_data: "switch:#{agent.id}"}
+      end)
+      |> Enum.chunk_every(2)
+
+    %ExGram.Model.InlineKeyboardMarkup{inline_keyboard: rows}
+  end
+
+  defp update_agents_message(callback_query, active_agent_id) do
+    with %{message: message} <- callback_query,
+         %{chat: %{id: chat_id}, message_id: message_id} <- message,
+         {:ok, agents} <- Ash.read(Piano.Agents.Agent, action: :list) do
+      text = agents_message(agents, active_agent_id)
+      keyboard = agents_keyboard(agents, active_agent_id)
+      API.edit_message_text(chat_id, message_id, text, parse_mode: "Markdown", reply_markup: keyboard)
+    else
+      _ -> :ok
+    end
   end
 
   defp format_error_message(reason) do

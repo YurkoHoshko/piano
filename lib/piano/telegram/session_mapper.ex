@@ -5,6 +5,9 @@ defmodule Piano.Telegram.SessionMapper do
   Uses database persistence via Piano.Telegram.Session resource.
   """
 
+  require Logger
+
+  alias Piano.Agents.Agent
   alias Piano.Chat.Thread
   alias Piano.Telegram.Session
 
@@ -101,6 +104,14 @@ defmodule Piano.Telegram.SessionMapper do
   """
   @spec set_agent(integer(), String.t()) :: :ok | {:error, term()}
   def set_agent(chat_id, agent_id) do
+    case Ash.get(Agent, agent_id) do
+      {:ok, agent} ->
+        Logger.info("Assigning agent #{agent.name} (#{agent.id}) to chat #{chat_id}")
+
+      {:error, _} ->
+        Logger.warning("Assigning unknown agent #{agent_id} to chat #{chat_id}")
+    end
+
     case get_session(chat_id) do
       {:ok, %Session{} = session} ->
         session

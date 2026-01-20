@@ -7,7 +7,7 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
     import Phoenix.Component
     import Phoenix.LiveView, only: [put_flash: 3]
 
-    alias Piano.Agents.{Agent, SkillRegistry, ToolRegistry}
+    alias Piano.Agents.{Agent, SkillRegistry, SystemPrompt, ToolRegistry}
 
   @impl true
   def menu_link(_params, _capabilities), do: {:ok, "Agents"}
@@ -18,14 +18,17 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
      socket
      |> assign(
        agents: load_agents(),
-       available_models: load_models(),
-       available_tools: ToolRegistry.list_available(),
-       available_skills: SkillRegistry.list_available(),
-       agent: nil,
-       form: nil,
-       selected_id: params["agent_id"]
-     )
-     |> maybe_select_agent(params)}
+        available_models: load_models(),
+        available_tools: ToolRegistry.list_available(),
+        available_skills: SkillRegistry.list_available(),
+        agent: nil,
+        create_form: build_create_form(),
+        form: nil,
+        selected_id: params["agent_id"],
+        show_create_modal: false,
+        show_edit_modal: false
+      )
+      |> maybe_select_agent(params)}
   end
 
   @impl true
@@ -39,6 +42,59 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
   end
 
   @impl true
+  def handle_event("create", %{"new" => form_params}, socket) do
+    attrs = %{
+      name: form_params["name"],
+      description: form_params["description"],
+      model: form_params["model"],
+      system_prompt: form_params["system_prompt"],
+      soul: form_params["soul"],
+      enabled_tools: [],
+      enabled_skills: []
+    }
+
+    case Ash.create(Agent, attrs, action: :create) do
+      {:ok, _agent} ->
+        {:noreply,
+         socket
+         |> assign(
+           agents: load_agents(),
+           create_form: build_create_form(),
+           available_models: load_models(),
+           show_create_modal: false
+         )
+         |> put_flash(:info, "Agent created successfully")}
+
+      {:error, _changeset} ->
+        {:noreply, put_flash(socket, :error, "Failed to create agent")}
+    end
+  end
+
+  @impl true
+  def handle_event("open_create_modal", _params, socket) do
+    {:noreply, assign(socket, show_create_modal: true)}
+  end
+
+  @impl true
+  def handle_event("open_edit_modal", %{"id" => agent_id}, socket) do
+    case get_agent_by_id(socket.assigns.agents, agent_id) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Agent not found")}
+
+      agent ->
+        {:noreply,
+         socket
+         |> assign(agent: agent, form: build_form(agent))
+         |> assign(show_edit_modal: true)}
+    end
+  end
+
+  @impl true
+  def handle_event("close_modal", _params, socket) do
+    {:noreply, assign(socket, show_create_modal: false, show_edit_modal: false)}
+  end
+
+  @impl true
   def handle_event("save", %{"form" => form_params}, socket) do
     agent = socket.assigns.agent
 
@@ -47,6 +103,7 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
       description: form_params["description"],
       model: form_params["model"],
       system_prompt: form_params["system_prompt"],
+      soul: form_params["soul"],
       enabled_tools: agent.enabled_tools || [],
       enabled_skills: agent.enabled_skills || []
     }
@@ -57,7 +114,13 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
 
         {:noreply,
          socket
-         |> assign(agent: updated_agent, form: form, agents: load_agents(), available_models: load_models())
+         |> assign(
+           agent: updated_agent,
+           form: form,
+           agents: load_agents(),
+           available_models: load_models(),
+           show_edit_modal: false
+         )
          |> put_flash(:info, "Agent updated successfully")}
 
       {:error, _changeset} ->
@@ -121,8 +184,19 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
       "description" => agent.description || "",
       "model" => agent.model,
       "system_prompt" => agent.system_prompt || "",
+      "soul" => agent.soul || "",
       "enabled_tools" => agent.enabled_tools,
       "enabled_skills" => agent.enabled_skills
+    })
+  end
+
+  defp build_create_form do
+    to_form(%{
+      "name" => "",
+      "description" => "",
+      "model" => "",
+      "system_prompt" => "",
+      "soul" => ""
     })
   end
 
@@ -140,6 +214,17 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
 
   defp maybe_select_agent(socket, _params), do: socket
 
+  defp get_agent_by_id(agents, agent_id) do
+    Enum.find(agents, fn agent -> agent.id == agent_id end)
+  end
+
+  defp prompt_preview(nil), do: ""
+
+  defp prompt_preview(agent) do
+    tools = ToolRegistry.get_tools(agent.enabled_tools || [])
+    SystemPrompt.build(agent, tools)
+  end
+
   defp load_agents do
     case Ash.read(Agent, action: :list) do
       {:ok, agents} -> agents
@@ -149,6 +234,7 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
 
   defp load_models do
     config = Application.get_env(:piano, :llm, [])
+    if Keyword.get(config, :disable_model_fetch, false), do: []
     base_url = Keyword.get(config, :base_url, "http://localhost:8000/v1")
     url = String.trim_trailing(base_url, "/") <> "/models"
 
@@ -174,13 +260,26 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
         <div class="col">
           <div class="card mb-4">
             <div class="card-body">
-              <h5 class="card-title">Agents</h5>
-              <p class="text-muted mb-3">Configure AI agents for Piano.</p>
+              <div class="d-flex align-items-start justify-content-between">
+                <div>
+                  <h5 class="card-title">Agents</h5>
+                  <p class="text-muted mb-0">Configure AI agents for Piano.</p>
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  phx-click="open_create_modal"
+                >
+                  New Agent
+                </button>
+              </div>
 
               <%= if @agents == [] do %>
-                <p class="text-muted mb-0">No agents configured. Run seeds to create a default agent.</p>
+                <p class="text-muted mt-3 mb-0">
+                  No agents configured. Run seeds to create a default agent.
+                </p>
               <% else %>
-                <table class="table table-hover">
+                <table class="table table-hover mt-3">
                   <thead>
                     <tr>
                       <th>Name</th>
@@ -201,9 +300,14 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
                         <td><%= length(agent.enabled_tools) %></td>
                         <td><%= length(agent.enabled_skills) %></td>
                         <td class="text-right">
-                          <a class="btn btn-primary btn-sm" href={"/dashboard/agents?agent_id=#{agent.id}"}>
+                          <button
+                            type="button"
+                            class="btn btn-primary btn-sm"
+                            phx-click="open_edit_modal"
+                            phx-value-id={agent.id}
+                          >
                             Edit
-                          </a>
+                          </button>
                         </td>
                       </tr>
                     <% end %>
@@ -215,15 +319,109 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
         </div>
       </div>
 
-      <%= if @agent && @form do %>
-        <div class="row">
-          <div class="col">
-            <div class="card">
-              <div class="card-body">
-                <h5 class="card-title">Edit Agent</h5>
-                <p class="text-muted mb-3">Update settings, tools, and skills.</p>
+      <%= if @show_create_modal || @show_edit_modal do %>
+        <div class="modal-backdrop show"></div>
+      <% end %>
 
-                <.form for={@form} phx-change="validate" phx-submit="save">
+      <%= if @show_create_modal do %>
+        <div class="modal d-block" tabindex="-1" role="dialog">
+          <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title">Create Agent</h5>
+                <button type="button" class="close" phx-click="close_modal" aria-label="Close">
+                  <span aria-hidden="true">&times;</span>
+                </button>
+              </div>
+              <div class="modal-body">
+              <.form for={@create_form} id="create-agent-form" phx-submit="create">
+                  <div class="mb-3">
+                    <label>Name</label>
+                    <input
+                      type="text"
+                      name="new[name]"
+                      value={@create_form[:name].value}
+                      class="form-control form-control-sm"
+                      required
+                    />
+                  </div>
+
+                  <div class="mb-3">
+                    <label>Model</label>
+                    <%= if @available_models == [] do %>
+                      <input
+                        type="text"
+                        name="new[model]"
+                        value={@create_form[:model].value}
+                        class="form-control form-control-sm"
+                        required
+                      />
+                      <small class="text-muted d-block">
+                        LlamaSwap models unavailable; enter a model name manually.
+                      </small>
+                    <% else %>
+                      <select name="new[model]" class="form-control form-control-sm" required>
+                        <option value="" disabled selected={@create_form[:model].value in [nil, ""]}>
+                          Select a model
+                        </option>
+                        <%= for model <- @available_models do %>
+                          <option value={model} selected={model == @create_form[:model].value}>
+                            <%= model %>
+                          </option>
+                        <% end %>
+                      </select>
+                    <% end %>
+                  </div>
+
+                  <div class="mb-3">
+                    <label>Description</label>
+                    <textarea name="new[description]" rows="2" class="form-control form-control-sm"><%= @create_form[:description].value %></textarea>
+                  </div>
+
+                  <div class="mb-3">
+                    <label>System Prompt</label>
+                    <textarea
+                      name="new[system_prompt]"
+                      rows="4"
+                      class="form-control form-control-sm"
+                    ><%= @create_form[:system_prompt].value %></textarea>
+                  </div>
+
+                  <div class="mb-3">
+                    <label>Soul</label>
+                    <textarea
+                      name="new[soul]"
+                      rows="4"
+                      class="form-control form-control-sm"
+                    ><%= @create_form[:soul].value %></textarea>
+                  </div>
+                </.form>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" phx-click="close_modal">
+                  Cancel
+                </button>
+                <button type="submit" class="btn btn-primary" form="create-agent-form">
+                  Create
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      <% end %>
+
+      <%= if @show_edit_modal && @agent && @form do %>
+        <div class="modal d-block" tabindex="-1" role="dialog">
+          <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title">Edit Agent</h5>
+                <button type="button" class="close" phx-click="close_modal" aria-label="Close">
+                  <span aria-hidden="true">&times;</span>
+                </button>
+              </div>
+              <div class="modal-body">
+                <.form for={@form} id="edit-agent-form" phx-change="validate" phx-submit="save">
                   <div class="mb-3">
                     <label>Name</label>
                     <input
@@ -271,6 +469,24 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
                       rows="4"
                       class="form-control form-control-sm"
                     ><%= @form[:system_prompt].value %></textarea>
+                  </div>
+
+                  <div class="mb-3">
+                    <label>Soul</label>
+                    <textarea
+                      name="form[soul]"
+                      rows="4"
+                      class="form-control form-control-sm"
+                    ><%= @form[:soul].value %></textarea>
+                  </div>
+
+                  <div class="mb-3">
+                    <label>System Prompt Preview</label>
+                    <textarea
+                      rows="6"
+                      readonly
+                      class="form-control form-control-sm"
+                    ><%= prompt_preview(@agent) %></textarea>
                   </div>
 
                   <div class="mb-3">
@@ -332,12 +548,15 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
                       </div>
                     <% end %>
                   </div>
-
-                  <div class="d-flex align-items-center gap-2">
-                    <button type="submit" class="btn btn-primary">Save Changes</button>
-                    <a class="btn btn-outline-secondary" href="/dashboard/agents">Clear selection</a>
-                  </div>
                 </.form>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" phx-click="close_modal">
+                  Cancel
+                </button>
+                <button type="submit" class="btn btn-primary" form="edit-agent-form">
+                  Save
+                </button>
               </div>
             </div>
           </div>
