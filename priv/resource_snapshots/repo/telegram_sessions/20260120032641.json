@@ -1,0 +1,107 @@
+{
+  "attributes": [
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "chat_id",
+      "references": null,
+      "allow_nil?": false,
+      "primary_key?": true,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "uuid",
+      "source": "thread_id",
+      "references": {
+        "name": "telegram_sessions_thread_id_fkey",
+        "table": "threads",
+        "primary_key?": true,
+        "on_delete": null,
+        "destination_attribute": "id",
+        "on_update": null,
+        "deferrable": false,
+        "multitenancy": {
+          "global": null,
+          "attribute": null,
+          "strategy": null
+        },
+        "destination_attribute_generated": null,
+        "destination_attribute_default": null
+      },
+      "allow_nil?": false,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "uuid",
+      "source": "agent_id",
+      "references": {
+        "name": "telegram_sessions_agent_id_fkey",
+        "table": "agents",
+        "primary_key?": true,
+        "on_delete": null,
+        "destination_attribute": "id",
+        "on_update": null,
+        "deferrable": false,
+        "multitenancy": {
+          "global": null,
+          "attribute": null,
+          "strategy": null
+        },
+        "destination_attribute_generated": null,
+        "destination_attribute_default": null
+      },
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "utc_datetime_usec",
+      "source": "inserted_at",
+      "references": null,
+      "allow_nil?": false,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "utc_datetime_usec",
+      "source": "updated_at",
+      "references": null,
+      "allow_nil?": false,
+      "primary_key?": false,
+      "generated?": false
+    }
+  ],
+  "table": "telegram_sessions",
+  "hash": "875087FF6213DE0F87F05D1D6CF5A1C2A59C9AF3D8F89A9E59D747FAED7761F0",
+  "repo": "Elixir.Piano.Repo",
+  "strict?": false,
+  "identities": [
+    {
+      "name": "unique_chat_id",
+      "keys": [
+        "chat_id"
+      ],
+      "base_filter": null,
+      "index_name": "telegram_sessions_unique_chat_id_index"
+    }
+  ],
+  "custom_indexes": [],
+  "base_filter": null,
+  "custom_statements": [],
+  "multitenancy": {
+    "global": null,
+    "attribute": null,
+    "strategy": null
+  },
+  "has_create_action": true
+}

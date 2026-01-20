@@ -5,14 +5,9 @@ defmodule Piano.TelegramFlowTest do
 
   alias Piano.Agents.Agent
   alias Piano.Chat.Message
-  alias Piano.Telegram.{Bot, SessionMapper}
+  alias Piano.Telegram.Bot
 
   setup :set_mox_global
-
-  setup do
-    start_supervised!(SessionMapper)
-    :ok
-  end
 
   @mock_response %{
     "choices" => [

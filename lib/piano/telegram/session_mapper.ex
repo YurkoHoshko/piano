@@ -2,40 +2,56 @@ defmodule Piano.Telegram.SessionMapper do
   @moduledoc """
   Maps Telegram chat IDs to Piano thread IDs.
 
-  Uses ETS for fast, concurrent access to chat-to-thread mappings.
+  Uses database persistence via Piano.Telegram.Session resource.
   """
 
-  use GenServer
-
   alias Piano.Chat.Thread
-
-  @table_name :telegram_sessions
-
-  def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-  end
+  alias Piano.Telegram.Session
 
   @doc """
   Gets the current thread_id for a chat, or creates a new thread if none exists.
   """
   @spec get_or_create_thread(integer()) :: {:ok, String.t()} | {:error, term()}
   def get_or_create_thread(chat_id) do
-    case :ets.lookup(@table_name, chat_id) do
-      [{^chat_id, thread_id}] ->
+    case get_session(chat_id) do
+      {:ok, %{thread_id: thread_id}} ->
         {:ok, thread_id}
 
-      [] ->
+      {:ok, nil} ->
         create_and_store_thread(chat_id)
+
+      {:error, _} = error ->
+        error
     end
   end
 
   @doc """
   Sets the active thread for a chat.
   """
-  @spec set_thread(integer(), String.t()) :: :ok
+  @spec set_thread(integer(), String.t()) :: :ok | {:error, term()}
   def set_thread(chat_id, thread_id) do
-    :ets.insert(@table_name, {chat_id, thread_id})
-    :ok
+    case get_session(chat_id) do
+      {:ok, %Session{} = session} ->
+        session
+        |> Ash.Changeset.for_update(:update, %{thread_id: thread_id})
+        |> Ash.update()
+        |> case do
+          {:ok, _} -> :ok
+          {:error, _} = error -> error
+        end
+
+      {:ok, nil} ->
+        Session
+        |> Ash.Changeset.for_create(:create, %{chat_id: chat_id, thread_id: thread_id})
+        |> Ash.create()
+        |> case do
+          {:ok, _} -> :ok
+          {:error, _} = error -> error
+        end
+
+      {:error, _} = error ->
+        error
+    end
   end
 
   @doc """
@@ -43,8 +59,17 @@ defmodule Piano.Telegram.SessionMapper do
   """
   @spec reset_thread(integer()) :: :ok
   def reset_thread(chat_id) do
-    :ets.delete(@table_name, chat_id)
-    :ok
+    case get_session(chat_id) do
+      {:ok, %Session{} = session} ->
+        Ash.destroy!(session)
+        :ok
+
+      {:ok, nil} ->
+        :ok
+
+      {:error, _} ->
+        :ok
+    end
   end
 
   @doc """
@@ -52,26 +77,26 @@ defmodule Piano.Telegram.SessionMapper do
   """
   @spec get_thread(integer()) :: String.t() | nil
   def get_thread(chat_id) do
-    case :ets.lookup(@table_name, chat_id) do
-      [{^chat_id, thread_id}] -> thread_id
-      [] -> nil
+    case get_session(chat_id) do
+      {:ok, %{thread_id: thread_id}} -> thread_id
+      {:ok, nil} -> nil
+      {:error, _} -> nil
     end
   end
 
-  @impl true
-  def init(_opts) do
-    table = :ets.new(@table_name, [:named_table, :public, :set, read_concurrency: true])
-    {:ok, %{table: table}}
+  defp get_session(chat_id) do
+    Session
+    |> Ash.Query.for_read(:by_chat_id, %{chat_id: chat_id})
+    |> Ash.read_one()
   end
 
   defp create_and_store_thread(chat_id) do
-    case Ash.create(Thread, %{title: "Telegram Chat"}, action: :create) do
-      {:ok, thread} ->
-        :ets.insert(@table_name, {chat_id, thread.id})
-        {:ok, thread.id}
-
-      {:error, _} = error ->
-        error
+    with {:ok, thread} <- Ash.create(Thread, %{title: "Telegram Chat"}, action: :create),
+         {:ok, _session} <-
+           Session
+           |> Ash.Changeset.for_create(:create, %{chat_id: chat_id, thread_id: thread.id})
+           |> Ash.create() do
+      {:ok, thread.id}
     end
   end
 end
