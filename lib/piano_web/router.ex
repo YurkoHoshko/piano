@@ -13,7 +13,7 @@ defmodule PianoWeb.Router do
   end
 
   pipeline :admin do
-    plug PianoWeb.AdminAuth
+  #   plug PianoWeb.AdminAuth
   end
 
   pipeline :api do

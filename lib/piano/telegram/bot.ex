@@ -15,16 +15,16 @@ defmodule Piano.Telegram.Bot do
   alias Piano.Chat.{Message, Thread}
   alias Piano.Telegram.{API, SessionMapper}
 
-  command("start")
-  command("help")
-  command("newthread")
-  command("thread")
-  command("status")
-  command("history")
-  command("delete")
-  command("cancel")
-  command("agents")
-  command("switch")
+  command("start", description: "Welcome message and usage tips")
+  command("help", description: "Show help and available commands")
+  command("newthread", description: "Start a new thread")
+  command("thread", description: "Switch to a thread by ID")
+  command("status", description: "Show current session status")
+  command("history", description: "Show recent messages")
+  command("delete", description: "Delete current thread")
+  command("cancel", description: "Cancel current request")
+  command("agents", description: "List available agents")
+  command("switch", description: "Switch to a specific agent")
 
   # Telegram message character limit
   @max_message_length 4096
@@ -52,7 +52,7 @@ defmodule Piano.Telegram.Bot do
     Let's get started!
     """
 
-    answer(context, welcome_message)
+    answer_with_menu(context, welcome_message)
   end
 
   def handle({:command, :help, _msg}, context) do
@@ -69,13 +69,13 @@ defmodule Piano.Telegram.Bot do
     💬 Just send any message to chat with me!
     """
 
-    answer(context, help_message, parse_mode: "Markdown")
+    answer_with_menu(context, help_message, parse_mode: "Markdown")
   end
 
   def handle({:command, :newthread, msg}, context) do
     chat_id = msg.chat.id
     SessionMapper.reset_thread(chat_id)
-    answer(context, "🆕 Started a new thread! Your next message will begin a fresh conversation.")
+    answer_with_menu(context, "🆕 Started a new thread! Your next message will begin a fresh conversation.")
   end
 
   def handle({:command, :thread, %{text: text} = msg}, context) do
@@ -87,14 +87,14 @@ defmodule Piano.Telegram.Bot do
           {:ok, thread} ->
             SessionMapper.set_thread(chat_id, thread.id)
             title = thread.title || "Untitled"
-            answer(context, "✅ Switched to thread: #{title}")
+            answer_with_menu(context, "✅ Switched to thread: #{title}")
 
           {:error, _} ->
-            answer(context, "❌ Thread not found. Please check the ID and try again.")
+            answer_with_menu(context, "❌ Thread not found. Please check the ID and try again.")
         end
 
       :error ->
-        answer(context, "Usage: /thread <thread_id>\n\nExample: /thread abc123-def456-...")
+        answer_with_menu(context, "Usage: /thread <thread_id>\n\nExample: /thread abc123-def456-...")
     end
   end
 
@@ -103,7 +103,7 @@ defmodule Piano.Telegram.Bot do
 
     case SessionMapper.get_thread(chat_id) do
       nil ->
-        answer(context, "No active thread. Send a message to start one!")
+        answer_with_menu(context, "No active thread. Send a message to start one!")
 
       thread_id ->
         case Ash.get(Thread, thread_id) do
@@ -126,10 +126,10 @@ defmodule Piano.Telegram.Bot do
             📅 Created: #{created}
             """
 
-            answer(context, status, parse_mode: "Markdown")
+            answer_with_menu(context, status, parse_mode: "Markdown")
 
           {:error, _} ->
-            answer(context, "No active thread. Send a message to start one!")
+            answer_with_menu(context, "No active thread. Send a message to start one!")
         end
     end
   end
@@ -139,7 +139,7 @@ defmodule Piano.Telegram.Bot do
 
     case SessionMapper.get_thread(chat_id) do
       nil ->
-        answer(context, "No active thread. Send a message to start one!")
+        answer_with_menu(context, "No active thread. Send a message to start one!")
 
       thread_id ->
         query = Ash.Query.for_read(Message, :list_by_thread, %{thread_id: thread_id})
@@ -157,13 +157,13 @@ defmodule Piano.Telegram.Bot do
                 "#{prefix}: #{content}"
               end)
 
-            answer(context, "📜 *Recent Messages*\n\n#{history}", parse_mode: "Markdown")
+            answer_with_menu(context, "📜 *Recent Messages*\n\n#{history}", parse_mode: "Markdown")
 
           {:ok, []} ->
-            answer(context, "No messages in this thread yet.")
+            answer_with_menu(context, "No messages in this thread yet.")
 
           {:error, _} ->
-            answer(context, "Failed to load history.")
+            answer_with_menu(context, "Failed to load history.")
         end
     end
   end
@@ -173,7 +173,7 @@ defmodule Piano.Telegram.Bot do
 
     case SessionMapper.get_thread(chat_id) do
       nil ->
-        answer(context, "No active thread to delete.")
+        answer_with_menu(context, "No active thread to delete.")
 
       thread_id ->
         if String.contains?(text, "confirm") do
@@ -181,14 +181,14 @@ defmodule Piano.Telegram.Bot do
             {:ok, thread} ->
               Ash.destroy!(thread)
               SessionMapper.reset_thread(chat_id)
-              answer(context, "🗑️ Thread deleted. Send a message to start a new conversation.")
+              answer_with_menu(context, "🗑️ Thread deleted. Send a message to start a new conversation.")
 
             {:error, _} ->
               SessionMapper.reset_thread(chat_id)
-              answer(context, "Thread not found. Session cleared.")
+              answer_with_menu(context, "Thread not found. Session cleared.")
           end
         else
-          answer(context, "⚠️ Are you sure? This will delete all messages in the current thread.\n\nReply /delete confirm to proceed.")
+          answer_with_menu(context, "⚠️ Are you sure? This will delete all messages in the current thread.\n\nReply /delete confirm to proceed.")
         end
     end
   end
@@ -202,10 +202,10 @@ defmodule Piano.Telegram.Bot do
         :ets.delete(:piano_pending_requests, chat_id)
         token = bot_token()
         send_or_edit(chat_id, placeholder_message_id, "⏹️ Cancelled", token)
-        answer(context, "Request cancelled.")
+        answer_with_menu(context, "Request cancelled.")
 
       [] ->
-        answer(context, "No pending request to cancel.")
+        answer_with_menu(context, "No pending request to cancel.")
     end
   end
 
@@ -215,7 +215,7 @@ defmodule Piano.Telegram.Bot do
 
     case Ash.read(Piano.Agents.Agent, action: :list) do
       {:ok, []} ->
-        answer(context, "No agents configured yet.")
+        answer_with_menu(context, "No agents configured yet.")
 
       {:ok, agents} ->
         agent_list =
@@ -227,10 +227,10 @@ defmodule Piano.Telegram.Bot do
           end)
 
         message = "📋 *Available Agents*\n\n#{agent_list}"
-        answer(context, message, parse_mode: "Markdown")
+        answer_with_menu(context, message, parse_mode: "Markdown")
 
       {:error, _reason} ->
-        answer(context, "Failed to load agents.")
+        answer_with_menu(context, "Failed to load agents.")
     end
   end
 
@@ -243,30 +243,30 @@ defmodule Piano.Telegram.Bot do
           {:ok, agent} ->
             case SessionMapper.set_agent(chat_id, agent.id) do
               :ok ->
-                answer(context, "✅ Switched to #{agent.name}")
+                answer_with_menu(context, "✅ Switched to #{agent.name}")
 
               {:error, _reason} ->
-                answer(context, "❌ Failed to switch agent. Please try again.")
+                answer_with_menu(context, "❌ Failed to switch agent. Please try again.")
             end
 
           {:error, :not_found} ->
             case Ash.read(Piano.Agents.Agent, action: :list) do
               {:ok, agents} when agents != [] ->
                 names = Enum.map_join(agents, ", ", & &1.name)
-                answer(context, "❌ Agent not found. Available agents: #{names}")
+                answer_with_menu(context, "❌ Agent not found. Available agents: #{names}")
 
               _ ->
-                answer(context, "❌ Agent not found. No agents configured.")
+                answer_with_menu(context, "❌ Agent not found. No agents configured.")
             end
         end
 
       :error ->
-        answer(context, "Usage: /switch <agent_name>\n\nExample: /switch Assistant")
+        answer_with_menu(context, "Usage: /switch <agent_name>\n\nExample: /switch Assistant")
     end
   end
 
   def handle({:command, _command, _msg}, context) do
-    answer(context, "Unknown command. Send /help to see available commands.")
+    answer_with_menu(context, "Unknown command. Send /help to see available commands.")
   end
 
   def handle({:text, text, msg}, _context) do
@@ -409,16 +409,16 @@ defmodule Piano.Telegram.Bot do
   end
 
   defp send_or_edit(chat_id, nil, text, token) do
-    API.send_message(chat_id, text, token: token)
+    API.send_message(chat_id, text, token: token, reply_markup: main_keyboard())
   end
 
   defp send_or_edit(chat_id, message_id, text, token) do
-    case API.edit_message_text(chat_id, message_id, text, token: token) do
+    case API.edit_message_text(chat_id, message_id, text, token: token, reply_markup: main_keyboard()) do
       {:ok, _} ->
         :ok
 
       {:error, _reason} ->
-        API.send_message(chat_id, text, token: token)
+        API.send_message(chat_id, text, token: token, reply_markup: main_keyboard())
     end
   end
 
@@ -434,7 +434,11 @@ defmodule Piano.Telegram.Bot do
 
         Enum.each(rest, fn chunk ->
           Process.sleep(100)
-          API.send_message(chat_id, chunk, token: token, parse_mode: "Markdown")
+          API.send_message(chat_id, chunk,
+            token: token,
+            parse_mode: "Markdown",
+            reply_markup: main_keyboard()
+          )
         end)
     end
 
@@ -500,6 +504,25 @@ defmodule Piano.Telegram.Bot do
     positions
     |> Enum.filter(&(&1 > 100 and &1 < @max_message_length - 100))
     |> Enum.min_by(&abs(&1 - target), fn -> nil end)
+  end
+
+  defp main_keyboard do
+    %ExGram.Model.ReplyKeyboardMarkup{
+      keyboard: [
+        [
+          %ExGram.Model.KeyboardButton{text: "/newthread"},
+          %ExGram.Model.KeyboardButton{text: "/history"},
+          %ExGram.Model.KeyboardButton{text: "/status"}
+        ],
+        [
+          %ExGram.Model.KeyboardButton{text: "/agents"},
+          %ExGram.Model.KeyboardButton{text: "/help"}
+        ]
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: false,
+      selective: false
+    }
   end
 
   defp format_error_message(reason) do
@@ -570,7 +593,11 @@ defmodule Piano.Telegram.Bot do
       |> html_escape()
 
     text = "<spoiler>Tool calls:\n#{body}</spoiler>"
-    API.send_message(chat_id, text, token: token, parse_mode: "HTML")
+    API.send_message(chat_id, text, token: token, parse_mode: "HTML", reply_markup: main_keyboard())
+  end
+
+  defp answer_with_menu(context, text, opts \\ []) do
+    answer(context, text, Keyword.put_new(opts, :reply_markup, main_keyboard()))
   end
 
   defp html_escape(text) do

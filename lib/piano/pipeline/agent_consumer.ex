@@ -138,17 +138,21 @@ defmodule Piano.Pipeline.AgentConsumer do
         _ -> llm_messages
       end
 
-    updated_context =
+    {updated_context, direct_response} =
       base_context
       |> maybe_append_assistant(response, tool_calls)
       |> append_tool_results(thread_id, tool_calls, tools)
 
-    case LLM.complete(updated_context, tools, model: agent.model) do
-      {:ok, new_response} ->
-        handle_llm_response(new_response, tools, updated_context, agent, thread_id, iteration + 1)
+    if direct_response do
+      {:ok, normalize_content(direct_response)}
+    else
+      case LLM.complete(updated_context, tools, model: agent.model) do
+        {:ok, new_response} ->
+          handle_llm_response(new_response, tools, updated_context, agent, thread_id, iteration + 1)
 
-      {:error, _} = error ->
-        error
+        {:error, _} = error ->
+          error
+      end
     end
   end
 
@@ -169,7 +173,7 @@ defmodule Piano.Pipeline.AgentConsumer do
   end
 
   defp append_tool_results(%Context{} = context, thread_id, tool_calls, tools) do
-    Enum.reduce(tool_calls, context, fn call, ctx ->
+    Enum.reduce(tool_calls, {context, nil}, fn call, {ctx, direct_response} ->
       {name, id, args} = normalize_tool_call(call)
 
       Logger.debug("Executing tool #{name} with args: #{inspect(args)}")
@@ -182,13 +186,18 @@ defmodule Piano.Pipeline.AgentConsumer do
         end
 
       case result do
+        {:ok, %{output: output, return_direct: true}} ->
+          Logger.debug("Tool #{name} returned #{byte_size(to_string(output))} bytes (return_direct)")
+          new_ctx = Context.append(ctx, Context.tool_result_message(name, id, output))
+          {new_ctx, direct_response || output}
+
         {:ok, output} ->
           Logger.debug("Tool #{name} returned #{byte_size(to_string(output))} bytes")
-          Context.append(ctx, Context.tool_result_message(name, id, output))
+          {Context.append(ctx, Context.tool_result_message(name, id, output)), direct_response}
 
         {:error, error} ->
           Logger.warning("Tool #{name} failed: #{inspect(error)}")
-          Context.append(ctx, Context.tool_result_message(name, id, %{error: inspect(error)}))
+          {Context.append(ctx, Context.tool_result_message(name, id, %{error: inspect(error)})), direct_response}
       end
     end)
   end

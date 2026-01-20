@@ -35,9 +35,15 @@ defmodule Piano.Agents.ToolRegistry do
     ],
     [
       name: "bash",
-      description: "Execute a shell command and return the output",
+      description:
+        "Execute a shell command and return the output. If return_direct is true, the tool may return output intended for direct reply and skip further LLM processing.",
       parameter_schema: [
-        command: [type: :string, required: true, doc: "The shell command to execute"]
+        command: [type: :string, required: true, doc: "The shell command to execute"],
+        return_direct: [
+          type: :boolean,
+          required: false,
+          doc: "If true, return output suitable for direct reply without another LLM call"
+        ]
       ],
       callback: &__MODULE__.execute_bash/1
     ]
@@ -148,14 +154,20 @@ defmodule Piano.Agents.ToolRegistry do
       command ->
         try do
           {output, exit_code} = System.cmd("sh", ["-c", command], stderr_to_stdout: true)
+          return_direct = fetch_param(args, :return_direct) == true
+          {output, truncated?} = truncate_output(output)
 
-          result = """
-          Exit code: #{exit_code}
-          Output:
-          #{output}
-          """
+          if return_direct do
+            {:ok, %{output: output, return_direct: true, exit_code: exit_code, truncated: truncated?}}
+          else
+            result = """
+            Exit code: #{exit_code}
+            Output:
+            #{output}
+            """
 
-          {:ok, result}
+            {:ok, append_truncation_notice(result, truncated?)}
+          end
         rescue
           e -> {:error, "Command execution failed: #{Exception.message(e)}"}
         end
@@ -173,4 +185,20 @@ defmodule Piano.Agents.ToolRegistry do
   rescue
     ArgumentError -> Map.get(args, key)
   end
+
+  defp truncate_output(output) when is_binary(output) do
+    max_chars = 8192
+
+    if String.length(output) > max_chars do
+      {String.slice(output, 0, max_chars), true}
+    else
+      {output, false}
+    end
+  end
+
+  defp append_truncation_notice(result, true) do
+    result <> "\n[Output truncated to 2048 tokens]\n"
+  end
+
+  defp append_truncation_notice(result, false), do: result
 end

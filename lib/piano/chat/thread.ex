@@ -58,6 +58,10 @@ defmodule Piano.Chat.Thread do
       change set_attribute(:status, :archived)
     end
 
+    update :rename do
+      accept [:title]
+    end
+
     create :fork do
       argument :source_thread_id, :uuid, allow_nil?: false
       argument :fork_at_message_id, :uuid, allow_nil?: false

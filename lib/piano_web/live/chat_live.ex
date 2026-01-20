@@ -18,6 +18,8 @@ defmodule PianoWeb.ChatLive do
        tool_calls_buffer: [],
        tool_calls_by_message_id: %{},
        thread_id: nil,
+       renaming_thread_id: nil,
+       rename_value: "",
        selected_agent_id: nil,
        input_value: "",
        thinking: false
@@ -96,6 +98,11 @@ defmodule PianoWeb.ChatLive do
   end
 
   def handle_event("select_thread", %{"id" => thread_id}, socket) do
+    socket =
+      socket
+      |> assign(:renaming_thread_id, nil)
+      |> assign(:rename_value, "")
+
     {:noreply, push_patch(socket, to: ~p"/chat?thread=#{thread_id}")}
   end
 
@@ -110,6 +117,8 @@ defmodule PianoWeb.ChatLive do
      |> assign(:messages, [])
      |> assign(:tool_calls_buffer, [])
      |> assign(:tool_calls_by_message_id, %{})
+     |> assign(:renaming_thread_id, nil)
+     |> assign(:rename_value, "")
      |> assign(:thinking, false)
      |> push_patch(to: ~p"/chat")}
   end
@@ -128,6 +137,93 @@ defmodule PianoWeb.ChatLive do
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Failed to fork thread")}
+    end
+  end
+
+  def handle_event("start_rename_thread", %{"id" => thread_id}, socket) do
+    title =
+      case Enum.find(socket.assigns.threads, fn thread -> thread.id == thread_id end) do
+        nil -> ""
+        thread -> thread.title || ""
+      end
+
+    {:noreply,
+     socket
+     |> assign(:renaming_thread_id, thread_id)
+     |> assign(:rename_value, title)}
+  end
+
+  def handle_event("rename_thread_change", %{"rename_value" => value}, socket) do
+    {:noreply, assign(socket, :rename_value, value)}
+  end
+
+  def handle_event("rename_thread_cancel", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:renaming_thread_id, nil)
+     |> assign(:rename_value, "")}
+  end
+
+  def handle_event("rename_thread_save", %{"id" => thread_id}, socket) do
+    thread = Enum.find(socket.assigns.threads, fn t -> t.id == thread_id end)
+
+    if thread do
+      title =
+        socket.assigns.rename_value
+        |> String.trim()
+        |> case do
+          "" -> nil
+          value -> value
+        end
+
+      case thread |> Ash.Changeset.for_update(:rename, %{title: title}) |> Ash.update() do
+        {:ok, _updated_thread} ->
+          {:noreply,
+           socket
+           |> assign(:threads, load_threads())
+           |> assign(:renaming_thread_id, nil)
+           |> assign(:rename_value, "")}
+
+        {:error, _changeset} ->
+          {:noreply, put_flash(socket, :error, "Failed to rename thread")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "Thread not found")}
+    end
+  end
+
+  def handle_event("delete_thread", %{"id" => thread_id}, socket) do
+    thread = Enum.find(socket.assigns.threads, fn t -> t.id == thread_id end)
+
+    if thread do
+      case Ash.destroy(thread) do
+        :ok ->
+          socket =
+            if socket.assigns.thread_id == thread_id do
+              Events.unsubscribe(thread_id)
+
+              socket
+              |> assign(:thread_id, nil)
+              |> assign(:messages, [])
+              |> assign(:tool_calls_buffer, [])
+              |> assign(:tool_calls_by_message_id, %{})
+              |> assign(:thinking, false)
+              |> push_patch(to: ~p"/chat")
+            else
+              socket
+            end
+
+          {:noreply,
+           socket
+           |> assign(:threads, load_threads())
+           |> assign(:renaming_thread_id, nil)
+           |> assign(:rename_value, "")}
+
+        {:error, _error} ->
+          {:noreply, put_flash(socket, :error, "Failed to delete thread")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "Thread not found")}
     end
   end
 
@@ -229,22 +325,68 @@ defmodule PianoWeb.ChatLive do
         </div>
         <div class="flex-1 overflow-y-auto">
           <%= for thread <- @threads do %>
-            <button
-              phx-click="select_thread"
-              phx-value-id={thread.id}
-              data-testid={"thread-#{thread.id}"}
+            <div
               class={[
-                "w-full text-left px-4 py-3 border-b border-gray-700 hover:bg-gray-800 transition-colors",
+                "border-b border-gray-700",
                 thread.id == @thread_id && "bg-gray-800"
               ]}
             >
-              <div class="text-white truncate">
-                <%= thread.title || "Untitled Thread" %>
+              <button
+                phx-click="select_thread"
+                phx-value-id={thread.id}
+                data-testid={"thread-#{thread.id}"}
+                class="w-full text-left px-4 py-3 hover:bg-gray-800 transition-colors"
+              >
+                <div class="text-white truncate">
+                  <%= thread.title || "Untitled Thread" %>
+                </div>
+                <div class="text-xs text-gray-400">
+                  <%= Calendar.strftime(thread.inserted_at, "%b %d, %H:%M") %>
+                </div>
+              </button>
+
+              <div class="flex items-center gap-2 px-4 pb-3 text-xs">
+                <%= if @renaming_thread_id == thread.id do %>
+                  <input
+                    type="text"
+                    value={@rename_value}
+                    phx-change="rename_thread_change"
+                    phx-debounce="200"
+                    name="rename_value"
+                    class="flex-1 bg-gray-800 text-white rounded px-2 py-1 border border-gray-600"
+                  />
+                  <button
+                    phx-click="rename_thread_save"
+                    phx-value-id={thread.id}
+                    class="text-green-400 hover:text-green-300"
+                  >
+                    Save
+                  </button>
+                  <button
+                    phx-click="rename_thread_cancel"
+                    class="text-gray-400 hover:text-gray-200"
+                  >
+                    Cancel
+                  </button>
+                <% else %>
+                  <button
+                    phx-click="start_rename_thread"
+                    phx-value-id={thread.id}
+                    class="text-blue-400 hover:text-blue-300"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    phx-click="delete_thread"
+                    phx-value-id={thread.id}
+                    phx-confirm="Delete this thread?"
+                    class="text-red-400 hover:text-red-300"
+                  >
+                    Delete
+                  </button>
+                <% end %>
               </div>
-              <div class="text-xs text-gray-400">
-                <%= Calendar.strftime(thread.inserted_at, "%b %d, %H:%M") %>
-              </div>
-            </button>
+            </div>
           <% end %>
         </div>
       </aside>
