@@ -24,6 +24,7 @@ defmodule Piano.Telegram.Bot do
   command("delete")
   command("cancel")
   command("agents")
+  command("switch")
 
   # Telegram message character limit
   @max_message_length 4096
@@ -233,6 +234,37 @@ defmodule Piano.Telegram.Bot do
     end
   end
 
+  def handle({:command, :switch, %{text: text} = msg}, context) do
+    chat_id = msg.chat.id
+
+    case parse_agent_name(text) do
+      {:ok, agent_name} ->
+        case find_agent_by_name(agent_name) do
+          {:ok, agent} ->
+            case SessionMapper.set_agent(chat_id, agent.id) do
+              :ok ->
+                answer(context, "✅ Switched to #{agent.name}")
+
+              {:error, _reason} ->
+                answer(context, "❌ Failed to switch agent. Please try again.")
+            end
+
+          {:error, :not_found} ->
+            case Ash.read(Piano.Agents.Agent, action: :list) do
+              {:ok, agents} when agents != [] ->
+                names = Enum.map_join(agents, ", ", & &1.name)
+                answer(context, "❌ Agent not found. Available agents: #{names}")
+
+              _ ->
+                answer(context, "❌ Agent not found. No agents configured.")
+            end
+        end
+
+      :error ->
+        answer(context, "Usage: /switch <agent_name>\n\nExample: /switch Assistant")
+    end
+  end
+
   def handle({:command, _command, _msg}, context) do
     answer(context, "Unknown command. Send /help to see available commands.")
   end
@@ -291,6 +323,33 @@ defmodule Piano.Telegram.Bot do
 
       _ ->
         :error
+    end
+  end
+
+  defp parse_agent_name(text) do
+    case String.split(text, " ", parts: 2) do
+      ["/switch", agent_name] when agent_name != "" ->
+        {:ok, String.trim(agent_name)}
+
+      _ ->
+        :error
+    end
+  end
+
+  defp find_agent_by_name(name) do
+    case Ash.read(Piano.Agents.Agent, action: :list) do
+      {:ok, agents} ->
+        name_downcase = String.downcase(name)
+
+        case Enum.find(agents, fn agent ->
+               String.downcase(agent.name) == name_downcase
+             end) do
+          nil -> {:error, :not_found}
+          agent -> {:ok, agent}
+        end
+
+      {:error, _} ->
+        {:error, :not_found}
     end
   end
 

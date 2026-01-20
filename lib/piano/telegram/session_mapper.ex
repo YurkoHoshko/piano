@@ -96,6 +96,39 @@ defmodule Piano.Telegram.SessionMapper do
     end
   end
 
+  @doc """
+  Sets the active agent for a chat.
+  """
+  @spec set_agent(integer(), String.t()) :: :ok | {:error, term()}
+  def set_agent(chat_id, agent_id) do
+    case get_session(chat_id) do
+      {:ok, %Session{} = session} ->
+        session
+        |> Ash.Changeset.for_update(:update, %{agent_id: agent_id})
+        |> Ash.update()
+        |> case do
+          {:ok, _} -> :ok
+          {:error, _} = error -> error
+        end
+
+      {:ok, nil} ->
+        with {:ok, thread} <- Ash.create(Thread, %{title: "Telegram Chat"}, action: :create),
+             {:ok, _session} <-
+               Session
+               |> Ash.Changeset.for_create(:create, %{
+                 chat_id: chat_id,
+                 thread_id: thread.id,
+                 agent_id: agent_id
+               })
+               |> Ash.create() do
+          :ok
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
   defp get_session(chat_id) do
     Session
     |> Ash.Query.for_read(:by_chat_id, %{chat_id: chat_id})

@@ -689,3 +689,28 @@ Task ID: 39
 - Markdown formatting in Telegram: use *bold* and _italic_ with parse_mode: "Markdown"
 
 ---
+
+## 2026-01-19 - US-011: Add /switch command to Telegram bot
+Thread: https://ampcode.com/threads/T-019bd980-403e-734c-83f5-a569aff4f280
+Task ID: 40
+- Added command("switch") to Bot module command declarations
+- Added handler for /switch <name> command with case-insensitive agent lookup
+- Parses agent name from message text after "/switch "
+- Loads all agents via Ash.read(Agent, action: :list), finds match with String.downcase comparison
+- On success: updates session via SessionMapper.set_agent/2, shows "✅ Switched to AgentName"
+- On not found: shows available agent names in error message
+- Added set_agent/2 function to SessionMapper - updates agent_id in session
+- If no session exists, creates thread and session with agent_id
+- mix compile --warnings-as-errors passes, mix test passes (34 tests)
+
+**Files changed:**
+- lib/piano/telegram/bot.ex - Added /switch command declaration, handler, parse_agent_name/1, find_agent_by_name/1
+- lib/piano/telegram/session_mapper.ex - Added set_agent/2 function
+
+**Learnings for future iterations:**
+- Case-insensitive string comparison: String.downcase(a) == String.downcase(b)
+- Enum.find to locate matching record in list, returns nil if not found
+- When setting agent without existing session, must also create thread (session requires thread_id)
+- Pattern: parse helper returns {:ok, value} | :error, find helper returns {:ok, record} | {:error, :not_found}
+
+---
