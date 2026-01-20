@@ -37,8 +37,8 @@ config :tailwind,
   ]
 
 config :logger, :console,
-  format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id]
+  format: "$time [$level] $metadata$message\n",
+  metadata: [:mfa, :request_id]
 
 config :phoenix, :json_library, Jason
 
