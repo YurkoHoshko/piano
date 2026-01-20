@@ -36,7 +36,7 @@ config :tailwind,
     cd: Path.expand("../assets", __DIR__)
   ]
 
-config :logger, :console,
+config :logger, :default_formatter,
   format: "$time [$level] $metadata$message\n",
   metadata: [:mfa, :request_id]
 
