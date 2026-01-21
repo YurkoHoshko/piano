@@ -233,6 +233,73 @@ defmodule Piano.TelegramFlowTest do
       assert second_len > 0
     end
 
+    test "placeholder message replies to user's original message", %{agent: _agent} do
+      chat_id = 444_555_666
+      user_message_id = 1001
+      test_pid = self()
+      placeholder_message_id = 55
+
+      Piano.LLM.Mock
+      |> expect(:complete, fn _messages, _tools, _opts ->
+        {:ok, build_response(@mock_response)}
+      end)
+
+      Piano.Telegram.API.Mock
+      |> stub(:send_chat_action, fn _chat_id, "typing", _opts ->
+        {:ok, %{}}
+      end)
+      |> expect(:send_message, fn ^chat_id, "⏳ Processing...", opts ->
+        send(test_pid, {:placeholder_opts, opts})
+        {:ok, %{message_id: placeholder_message_id}}
+      end)
+      |> expect(:edit_message_text, fn ^chat_id, ^placeholder_message_id, _content, _opts ->
+        send(test_pid, :done)
+        {:ok, %{}}
+      end)
+
+      mock_msg = %{chat: %{id: chat_id}, message_id: user_message_id}
+
+      Bot.handle({:text, "Test reply threading", mock_msg}, nil)
+
+      assert_receive {:placeholder_opts, opts}, 2000
+      assert Keyword.get(opts, :reply_to_message_id) == user_message_id
+      assert_receive :done, 2000
+    end
+
+    test "fallback send_message includes reply_to_message_id", %{agent: _agent} do
+      chat_id = 777_888_999
+      user_message_id = 2002
+      test_pid = self()
+      placeholder_message_id = 66
+
+      Piano.LLM.Mock
+      |> expect(:complete, fn _messages, _tools, _opts ->
+        {:ok, build_response(@mock_response)}
+      end)
+
+      Piano.Telegram.API.Mock
+      |> stub(:send_chat_action, fn _chat_id, "typing", _opts ->
+        {:ok, %{}}
+      end)
+      |> expect(:send_message, fn ^chat_id, "⏳ Processing...", _opts ->
+        {:ok, %{message_id: placeholder_message_id}}
+      end)
+      |> expect(:edit_message_text, fn ^chat_id, ^placeholder_message_id, _content, _opts ->
+        {:error, %{description: "Bad Request: message is not modified"}}
+      end)
+      |> expect(:send_message, fn ^chat_id, _content, opts ->
+        send(test_pid, {:fallback_opts, opts})
+        {:ok, %{}}
+      end)
+
+      mock_msg = %{chat: %{id: chat_id}, message_id: user_message_id}
+
+      Bot.handle({:text, "Test fallback reply", mock_msg}, nil)
+
+      assert_receive {:fallback_opts, opts}, 2000
+      assert Keyword.get(opts, :reply_to_message_id) == user_message_id
+    end
+
     test "appends tool calls and sends drawer", %{agent: _agent} do
       chat_id = 222_333_444
       test_pid = self()

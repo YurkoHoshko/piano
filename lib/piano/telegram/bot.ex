@@ -197,11 +197,11 @@ defmodule Piano.Telegram.Bot do
     chat_id = msg.chat.id
 
     case :ets.lookup(:piano_pending_requests, chat_id) do
-      [{^chat_id, pid, placeholder_message_id}] ->
+      [{^chat_id, pid, placeholder_message_id, user_message_id}] ->
         send(pid, :cancelled)
         :ets.delete(:piano_pending_requests, chat_id)
         token = bot_token()
-        send_or_edit(chat_id, placeholder_message_id, "⏹️ Cancelled", token)
+        send_or_edit(chat_id, placeholder_message_id, "⏹️ Cancelled", token, user_message_id)
         answer_with_menu(context, "Request cancelled.")
 
       [] ->
@@ -300,10 +300,14 @@ defmodule Piano.Telegram.Bot do
 
   def handle({:text, text, msg}, _context) do
     chat_id = msg.chat.id
+    user_message_id = Map.get(msg, :message_id)
     token = bot_token()
 
     placeholder_message_id =
-      case API.send_message(chat_id, "⏳ Processing...", token: token) do
+      case API.send_message(chat_id, "⏳ Processing...",
+             token: token,
+             reply_to_message_id: user_message_id
+           ) do
         {:ok, %{message_id: mid}} -> mid
         _ -> nil
       end
@@ -319,11 +323,11 @@ defmodule Piano.Telegram.Bot do
 
             spawn(fn ->
               ensure_pending_requests_table()
-              :ets.insert(:piano_pending_requests, {chat_id, self(), placeholder_message_id})
+              :ets.insert(:piano_pending_requests, {chat_id, self(), placeholder_message_id, user_message_id})
               Events.subscribe(message.thread_id)
 
               result =
-                wait_for_response(chat_id, message.thread_id, token, placeholder_message_id)
+                wait_for_response(chat_id, message.thread_id, token, placeholder_message_id, user_message_id)
 
               :ets.delete(:piano_pending_requests, chat_id)
               send(parent, {:request_complete, chat_id, result})
@@ -331,12 +335,12 @@ defmodule Piano.Telegram.Bot do
 
           {:error, reason} ->
             Logger.error("Failed to handle Telegram message: #{inspect(reason)}")
-            send_or_edit(chat_id, placeholder_message_id, "Sorry, something went wrong. Please try again.", token)
+            send_or_edit(chat_id, placeholder_message_id, "Sorry, something went wrong. Please try again.", token, user_message_id)
         end
 
       {:error, reason} ->
         Logger.error("Failed to get/create thread for chat #{chat_id}: #{inspect(reason)}")
-        send_or_edit(chat_id, placeholder_message_id, "Sorry, something went wrong. Please try again.", token)
+        send_or_edit(chat_id, placeholder_message_id, "Sorry, something went wrong. Please try again.", token, user_message_id)
     end
 
     :ok
@@ -386,17 +390,17 @@ defmodule Piano.Telegram.Bot do
     end
   end
 
-  defp wait_for_response(chat_id, thread_id, token, placeholder_message_id) do
-    wait_for_response(chat_id, thread_id, token, placeholder_message_id, 0, [])
+  defp wait_for_response(chat_id, thread_id, token, placeholder_message_id, user_message_id) do
+    wait_for_response(chat_id, thread_id, token, placeholder_message_id, user_message_id, 0, [])
   end
 
-  defp wait_for_response(chat_id, thread_id, token, placeholder_message_id, elapsed, tool_calls) do
+  defp wait_for_response(chat_id, thread_id, token, placeholder_message_id, user_message_id, elapsed, tool_calls) do
     remaining = 120_000 - elapsed
     timeout = min(@still_working_timeout, remaining)
 
     if remaining <= 0 do
       Logger.warning("Response timeout for thread #{thread_id}")
-      send_or_edit(chat_id, placeholder_message_id, "Sorry, the request timed out. Please try again.", token)
+      send_or_edit(chat_id, placeholder_message_id, "Sorry, the request timed out. Please try again.", token, user_message_id)
       Events.unsubscribe(thread_id)
       :timeout
     else
@@ -407,33 +411,33 @@ defmodule Piano.Telegram.Bot do
 
         {:processing_started, _message_id} ->
           API.send_chat_action(chat_id, "typing", token: token)
-          wait_for_response(chat_id, thread_id, token, placeholder_message_id, elapsed, tool_calls)
+          wait_for_response(chat_id, thread_id, token, placeholder_message_id, user_message_id, elapsed, tool_calls)
 
         {:tool_call, tool_call} ->
           updated_tool_calls = tool_calls ++ [tool_call]
-          send_or_edit(chat_id, placeholder_message_id, tool_calls_placeholder(updated_tool_calls), token)
-          wait_for_response(chat_id, thread_id, token, placeholder_message_id, elapsed, updated_tool_calls)
+          send_or_edit(chat_id, placeholder_message_id, tool_calls_placeholder(updated_tool_calls), token, user_message_id)
+          wait_for_response(chat_id, thread_id, token, placeholder_message_id, user_message_id, elapsed, updated_tool_calls)
 
         {:response_ready, agent_message} ->
-          send_long_response(chat_id, placeholder_message_id, agent_message.content, token, tool_calls)
+          send_long_response(chat_id, placeholder_message_id, agent_message.content, token, tool_calls, user_message_id)
           Events.unsubscribe(thread_id)
           :ok
 
         {:processing_error, _message_id, reason} ->
           Logger.error("Processing error for thread #{thread_id}: #{inspect(reason)}")
           error_message = format_error_message(reason)
-          send_or_edit(chat_id, placeholder_message_id, error_message, token)
+          send_or_edit(chat_id, placeholder_message_id, error_message, token, user_message_id)
           Events.unsubscribe(thread_id)
           :error
       after
         timeout ->
           if elapsed + timeout < 120_000 do
-            send_or_edit(chat_id, placeholder_message_id, "⏳ Still working...", token)
+            send_or_edit(chat_id, placeholder_message_id, "⏳ Still working...", token, user_message_id)
             API.send_chat_action(chat_id, "typing", token: token)
-            wait_for_response(chat_id, thread_id, token, placeholder_message_id, elapsed + timeout, tool_calls)
+            wait_for_response(chat_id, thread_id, token, placeholder_message_id, user_message_id, elapsed + timeout, tool_calls)
           else
             Logger.warning("Response timeout for thread #{thread_id}")
-            send_or_edit(chat_id, placeholder_message_id, "Sorry, the request timed out. Please try again.", token)
+            send_or_edit(chat_id, placeholder_message_id, "Sorry, the request timed out. Please try again.", token, user_message_id)
             Events.unsubscribe(thread_id)
             :timeout
           end
@@ -441,29 +445,37 @@ defmodule Piano.Telegram.Bot do
     end
   end
 
-  defp send_or_edit(chat_id, nil, text, token) do
-    API.send_message(chat_id, text, token: token, reply_markup: main_keyboard())
+  defp send_or_edit(chat_id, nil, text, token, user_message_id) do
+    API.send_message(chat_id, text,
+      token: token,
+      reply_markup: main_keyboard(),
+      reply_to_message_id: user_message_id
+    )
   end
 
-  defp send_or_edit(chat_id, message_id, text, token) do
+  defp send_or_edit(chat_id, message_id, text, token, user_message_id) do
     case API.edit_message_text(chat_id, message_id, text, token: token, reply_markup: main_keyboard()) do
       {:ok, _} ->
         :ok
 
       {:error, _reason} ->
-        API.send_message(chat_id, text, token: token, reply_markup: main_keyboard())
+        API.send_message(chat_id, text,
+          token: token,
+          reply_markup: main_keyboard(),
+          reply_to_message_id: user_message_id
+        )
     end
   end
 
-  defp send_long_response(chat_id, placeholder_message_id, content, token, tool_calls) do
+  defp send_long_response(chat_id, placeholder_message_id, content, token, tool_calls, user_message_id) do
     chunks = split_message(content)
 
     case chunks do
       [] ->
-        send_or_edit(chat_id, placeholder_message_id, "No response generated.", token)
+        send_or_edit(chat_id, placeholder_message_id, "No response generated.", token, user_message_id)
 
       [first | rest] ->
-        send_or_edit(chat_id, placeholder_message_id, first, token)
+        send_or_edit(chat_id, placeholder_message_id, first, token, user_message_id)
 
         Enum.each(rest, fn chunk ->
           Process.sleep(100)
