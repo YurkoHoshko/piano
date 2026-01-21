@@ -37,3 +37,26 @@ Parent Task: 52
 - Edge cases (nil message_id handled gracefully via Map.get)
 
 ---
+
+## Task 54: US-005 Skill discovery and loading
+**Status:** Complete
+**Date:** 2026-01-20
+
+**Changes:**
+- Rewrote `SkillRegistry` to scan `.piano/skills/*/SKILL.md` instead of `.agents/skills/*.md`
+- Added YAML frontmatter parsing via `YamlElixir` to extract name and description
+- Created ETS table `:piano_skills` for fast in-memory skill storage
+- Added `init/0` function called from `Application.start/2`
+- Added `format_for_system_prompt/0` to provide available skills list to LLM
+- Updated `SystemPrompt.build/2` to include available skills in the prompt
+- Application logs discovered skills on startup
+- Added test fixtures in `test/fixtures/.piano/skills/`
+- Added `SkillRegistryTest` with 8 tests covering all functionality
+
+**Key functions:**
+- `SkillRegistry.init/0` - initializes ETS and discovers skills
+- `SkillRegistry.list_available/0` - returns list of skill metadata
+- `SkillRegistry.load_skill/1` - loads full SKILL.md content by name
+- `SkillRegistry.format_for_system_prompt/0` - formats available skills for LLM
+
+---

@@ -7,6 +7,7 @@ defmodule Piano.Application do
   def start(_type, _args) do
     setup_admin_token()
     log_dev_reload_status()
+    init_skill_registry()
 
     children = [
       PianoWeb.Telemetry,
@@ -94,4 +95,22 @@ defmodule Piano.Application do
     """)
   end
 
+  defp init_skill_registry do
+    Piano.Agents.SkillRegistry.init()
+    skills = Piano.Agents.SkillRegistry.list_available()
+    skill_count = length(skills)
+
+    if skill_count > 0 do
+      skill_names = skills |> Enum.map(& &1.name) |> Enum.join(", ")
+
+      IO.puts("""
+
+      ═══════════════════════════════════════════════════════════════
+      🎯 Skills Discovered
+      ═══════════════════════════════════════════════════════════════
+      Found #{skill_count} skill(s): #{skill_names}
+      ═══════════════════════════════════════════════════════════════
+      """)
+    end
+  end
 end

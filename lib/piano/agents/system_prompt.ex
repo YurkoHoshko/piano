@@ -6,12 +6,14 @@ defmodule Piano.Agents.SystemPrompt do
   @spec build(Piano.Agents.Agent.t(), list()) :: String.t()
   def build(agent, tools \\ []) do
     skill_prompts = SkillRegistry.get_prompts(agent.enabled_skills)
+    available_skills = SkillRegistry.format_for_system_prompt()
     base_prompt = agent.system_prompt || "You are a helpful assistant."
     soul_prompt = format_soul(agent.soul)
 
     [base_prompt]
     |> maybe_append(soul_prompt)
     |> maybe_append(skill_prompts)
+    |> maybe_append(available_skills)
     |> maybe_append_tools(tools)
     |> Enum.join("\n\n")
   end
