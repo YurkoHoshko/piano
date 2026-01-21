@@ -3,9 +3,20 @@ defmodule Piano.Agents.ToolRegistry do
   Registry for agent tools. Defines available tools with their schemas and callbacks.
   """
 
+  alias Piano.Agents.SkillRegistry
+
   @type tool :: ReqLLM.Tool.t()
 
   @tools [
+    [
+      name: "load_skill",
+      description:
+        "Load a skill's full instructions by name. Use this to load specialized workflows and capabilities from available skills.",
+      parameter_schema: [
+        name: [type: :string, required: true, doc: "The name of the skill to load"]
+      ],
+      callback: &__MODULE__.execute_load_skill/1
+    ],
     [
       name: "read_file",
       description: "Read the contents of a file at the given path",
@@ -115,6 +126,25 @@ defmodule Piano.Agents.ToolRegistry do
   end
 
   def execute_read_file(_), do: {:error, "Missing required parameter: path"}
+
+  @doc """
+  Execute the load_skill tool.
+  """
+  @spec execute_load_skill(map()) :: {:ok, String.t()} | {:error, String.t()}
+  def execute_load_skill(args) when is_map(args) do
+    case fetch_param(args, :name) do
+      nil ->
+        {:error, "Missing required parameter: name"}
+
+      skill_name ->
+        case SkillRegistry.load_skill(skill_name) do
+          nil -> {:error, "Skill not found: #{skill_name}"}
+          content -> {:ok, content}
+        end
+    end
+  end
+
+  def execute_load_skill(_), do: {:error, "Missing required parameter: name"}
 
   @doc """
   Execute the create_file tool.

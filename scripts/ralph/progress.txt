@@ -60,3 +60,19 @@ Parent Task: 52
 - `SkillRegistry.format_for_system_prompt/0` - formats available skills for LLM
 
 ---
+
+## Task 55: US-006 Load skill tool
+**Status:** Complete
+**Date:** 2026-01-20
+
+**Changes:**
+- Added `load_skill` tool to `ToolRegistry` with name parameter
+- Tool calls `SkillRegistry.load_skill/1` to fetch skill content
+- Returns skill content on success, error message if skill not found
+- Added `execute_load_skill/1` function following existing tool patterns
+- Added alias for `Piano.Agents.SkillRegistry` in ToolRegistry
+- Created `ToolRegistryTest` with 5 tests for load_skill tool
+
+**Tool pattern:** Simple callback (no requires_context) that delegates to SkillRegistry
+
+---
