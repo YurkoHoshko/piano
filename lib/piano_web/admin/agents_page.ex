@@ -49,6 +49,7 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
       model: form_params["model"],
       system_prompt: form_params["system_prompt"],
       soul: form_params["soul"],
+      max_iterations: parse_int(form_params["max_iterations"], 5),
       enabled_tools: [],
       enabled_skills: []
     }
@@ -104,6 +105,7 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
       model: form_params["model"],
       system_prompt: form_params["system_prompt"],
       soul: form_params["soul"],
+      max_iterations: parse_int(form_params["max_iterations"], agent.max_iterations || 5),
       enabled_tools: agent.enabled_tools || [],
       enabled_skills: agent.enabled_skills || []
     }
@@ -185,6 +187,7 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
       "model" => agent.model,
       "system_prompt" => agent.system_prompt || "",
       "soul" => agent.soul || "",
+      "max_iterations" => agent.max_iterations || 5,
       "enabled_tools" => agent.enabled_tools,
       "enabled_skills" => agent.enabled_skills
     })
@@ -196,7 +199,8 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
       "description" => "",
       "model" => "",
       "system_prompt" => "",
-      "soul" => ""
+      "soul" => "",
+      "max_iterations" => 5
     })
   end
 
@@ -231,6 +235,18 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
       {:error, _} -> []
     end
   end
+
+  defp parse_int(nil, default), do: default
+
+  defp parse_int(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} -> int
+      :error -> default
+    end
+  end
+
+  defp parse_int(value, _default) when is_integer(value), do: value
+  defp parse_int(_value, default), do: default
 
   defp load_models do
     config = Application.get_env(:piano, :llm, [])
@@ -395,6 +411,19 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
                       class="form-control form-control-sm"
                     ><%= @create_form[:soul].value %></textarea>
                   </div>
+
+                  <div class="mb-3">
+                    <label>Max Tool Iterations</label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      name="new[max_iterations]"
+                      value={@create_form[:max_iterations].value}
+                      class="form-control form-control-sm"
+                      required
+                    />
+                  </div>
                 </.form>
               </div>
               <div class="modal-footer">
@@ -478,6 +507,19 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
                       rows="4"
                       class="form-control form-control-sm"
                     ><%= @form[:soul].value %></textarea>
+                  </div>
+
+                  <div class="mb-3">
+                    <label>Max Tool Iterations</label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      name="form[max_iterations]"
+                      value={@form[:max_iterations].value}
+                      class="form-control form-control-sm"
+                      required
+                    />
                   </div>
 
                   <div class="mb-3">

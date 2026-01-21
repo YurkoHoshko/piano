@@ -54,6 +54,7 @@ defmodule Piano.MixProject do
       # HTTP client (for LLM calls)
       {:req, "~> 0.5"},
       {:req_llm, "~> 1.2"},
+      {:yaml_elixir, "~> 2.9"},
 
       # Testing
       {:mox, "~> 1.0", only: :test},

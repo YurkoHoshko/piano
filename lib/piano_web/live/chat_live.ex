@@ -232,7 +232,31 @@ defmodule PianoWeb.ChatLive do
     {:noreply, assign(socket, :thinking, true)}
   end
 
+  def handle_info({:response_ready, _message_id, message}, socket) do
+    handle_response_ready(message, socket)
+  end
+
   def handle_info({:response_ready, message}, socket) do
+    handle_response_ready(message, socket)
+  end
+
+  def handle_info({:processing_error, _message_id, _reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:thinking, false)
+     |> assign(:tool_calls_buffer, [])
+     |> put_flash(:error, "Failed to get response")}
+  end
+
+  def handle_info({:tool_call, _message_id, tool_call}, socket) do
+    {:noreply, update(socket, :tool_calls_buffer, &(&1 ++ [tool_call]))}
+  end
+
+  def handle_info({:tool_call, tool_call}, socket) do
+    {:noreply, update(socket, :tool_calls_buffer, &(&1 ++ [tool_call]))}
+  end
+
+  defp handle_response_ready(message, socket) do
     tool_calls = socket.assigns.tool_calls_buffer
 
     {:noreply,
@@ -247,18 +271,6 @@ defmodule PianoWeb.ChatLive do
        end
      end)
      |> update(:messages, &(&1 ++ [message]))}
-  end
-
-  def handle_info({:processing_error, _message_id, _reason}, socket) do
-    {:noreply,
-     socket
-     |> assign(:thinking, false)
-     |> assign(:tool_calls_buffer, [])
-     |> put_flash(:error, "Failed to get response")}
-  end
-
-  def handle_info({:tool_call, tool_call}, socket) do
-    {:noreply, update(socket, :tool_calls_buffer, &(&1 ++ [tool_call]))}
   end
 
   defp load_threads do

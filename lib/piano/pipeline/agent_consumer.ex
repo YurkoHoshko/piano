@@ -11,6 +11,7 @@ defmodule Piano.Pipeline.AgentConsumer do
   alias Piano.Agents.{Agent, SystemPrompt, ToolRegistry}
   alias Piano.Chat.Message
   alias Piano.{Events, LLM}
+  alias Piano.Telegram.SessionMapper
   alias ReqLLM.{Context, Response, ToolCall}
 
   def start_link(opts \\ []) do
@@ -28,22 +29,60 @@ defmodule Piano.Pipeline.AgentConsumer do
     {:noreply, [], state}
   end
 
-  defp process_event(%{thread_id: thread_id, message_id: message_id, agent_id: agent_id}) do
-    Logger.info("Processing message #{message_id} for thread #{thread_id}")
+  defp process_event(%{thread_id: thread_id, message_id: message_id, agent_id: agent_id} = event) do
+    chat_id = Map.get(event, :chat_id)
+    telegram_message_id = Map.get(event, :telegram_message_id)
 
-    Events.broadcast(thread_id, {:processing_started, message_id})
-
-    with {:ok, agent} <- load_agent(agent_id),
-         {:ok, messages} <- load_thread_messages(thread_id),
-         {:ok, response} <- call_llm(agent, messages, thread_id),
-         {:ok, agent_message} <- create_agent_message(thread_id, agent_id, response) do
-      Logger.info("Processed message #{message_id} with agent #{agent.name} (#{agent.id})")
-      Events.broadcast(thread_id, {:response_ready, agent_message})
-      Logger.info("Successfully processed message #{message_id}")
+    if chat_id && telegram_message_id && telegram_cancelled?(chat_id, telegram_message_id) do
+      clear_telegram_cancelled(chat_id, telegram_message_id)
+      Logger.info("Skipping cancelled Telegram message #{telegram_message_id} for chat #{chat_id}")
     else
-      {:error, reason} ->
-        Logger.error("Failed to process message #{message_id}: #{inspect(reason)}")
-        Events.broadcast(thread_id, {:processing_error, message_id, reason})
+      if chat_id && telegram_message_id do
+        SessionMapper.set_pending_message_id(chat_id, telegram_message_id)
+      end
+
+      Process.put(:piano_message_id, message_id)
+
+      Logger.info("Processing message #{message_id} for thread #{thread_id}")
+      Events.broadcast(thread_id, {:processing_started, message_id})
+
+      result =
+        with {:ok, agent} <- load_agent(agent_id),
+             {:ok, messages} <- load_thread_messages(thread_id),
+             {:ok, response} <- call_llm(agent, messages, thread_id),
+             {:ok, agent_message} <- create_agent_message(thread_id, agent_id, response) do
+          Logger.info("Processed message #{message_id} with agent #{agent.name} (#{agent.id})")
+
+          if chat_id && telegram_message_id && telegram_cancelled?(chat_id, telegram_message_id) do
+            Logger.info("Skipping response for cancelled Telegram message #{telegram_message_id}")
+            clear_telegram_cancelled(chat_id, telegram_message_id)
+            :cancelled
+          else
+            Events.broadcast(thread_id, {:response_ready, message_id, agent_message})
+            Logger.info("Successfully processed message #{message_id}")
+            :ok
+          end
+        else
+          {:error, reason} ->
+            Logger.error("Failed to process message #{message_id}: #{inspect(reason)}")
+
+            if chat_id && telegram_message_id && telegram_cancelled?(chat_id, telegram_message_id) do
+              Logger.info("Skipping error broadcast for cancelled Telegram message #{telegram_message_id}")
+              clear_telegram_cancelled(chat_id, telegram_message_id)
+            else
+              Events.broadcast(thread_id, {:processing_error, message_id, reason})
+            end
+
+            :error
+        end
+
+      Process.delete(:piano_message_id)
+
+      if chat_id && telegram_message_id do
+        SessionMapper.clear_pending_message_id(chat_id, telegram_message_id)
+      end
+
+      result
     end
   end
 
@@ -73,10 +112,11 @@ defmodule Piano.Pipeline.AgentConsumer do
     system_prompt = build_system_prompt(agent)
     llm_messages = build_llm_messages(system_prompt, messages)
     tools = ToolRegistry.get_tools(agent.enabled_tools)
+    max_iterations = agent.max_iterations || @max_tool_iterations
 
     case LLM.complete(llm_messages, tools, model: agent.model) do
       {:ok, response} ->
-        handle_llm_response(response, tools, llm_messages, agent, thread_id, 0)
+        handle_llm_response(response, tools, llm_messages, agent, thread_id, 0, max_iterations)
 
       {:error, _} = error ->
         error
@@ -102,7 +142,7 @@ defmodule Piano.Pipeline.AgentConsumer do
     Context.new([Context.system(system_prompt) | history])
   end
 
-  defp handle_llm_response(response, tools, llm_messages, agent, thread_id, iteration) do
+  defp handle_llm_response(response, tools, llm_messages, agent, thread_id, iteration, max_iterations) do
     tool_calls = LLM.extract_tool_calls(response)
 
     cond do
@@ -111,8 +151,8 @@ defmodule Piano.Pipeline.AgentConsumer do
 
         {:ok, ensure_non_empty_content(content, response)}
 
-      iteration >= @max_tool_iterations ->
-        Logger.warning("Max tool iterations (#{@max_tool_iterations}) reached, returning partial response")
+      iteration >= max_iterations ->
+        Logger.warning("Max tool iterations (#{max_iterations}) reached, returning partial response")
         content =
           LLM.extract_content(response) ||
             "I attempted to use tools but reached the maximum number of iterations."
@@ -120,11 +160,29 @@ defmodule Piano.Pipeline.AgentConsumer do
         {:ok, ensure_non_empty_content(normalize_content(content), response)}
 
       true ->
-        execute_tool_calls_and_continue(response, tool_calls, tools, llm_messages, agent, thread_id, iteration)
+        execute_tool_calls_and_continue(
+          response,
+          tool_calls,
+          tools,
+          llm_messages,
+          agent,
+          thread_id,
+          iteration,
+          max_iterations
+        )
     end
   end
 
-  defp execute_tool_calls_and_continue(response, tool_calls, tools, llm_messages, agent, thread_id, iteration) do
+  defp execute_tool_calls_and_continue(
+         response,
+         tool_calls,
+         tools,
+         llm_messages,
+         agent,
+         thread_id,
+         iteration,
+         max_iterations
+       ) do
     base_context =
       case response do
         %ReqLLM.Response{context: %ReqLLM.Context{} = ctx} -> ctx
@@ -141,7 +199,15 @@ defmodule Piano.Pipeline.AgentConsumer do
     else
       case LLM.complete(updated_context, tools, model: agent.model) do
         {:ok, new_response} ->
-          handle_llm_response(new_response, tools, updated_context, agent, thread_id, iteration + 1)
+          handle_llm_response(
+            new_response,
+            tools,
+            updated_context,
+            agent,
+            thread_id,
+            iteration + 1,
+            max_iterations
+          )
 
         {:error, _} = error ->
           error
@@ -166,11 +232,17 @@ defmodule Piano.Pipeline.AgentConsumer do
   end
 
   defp append_tool_results(%Context{} = context, thread_id, tool_calls, tools, agent) do
+    message_id = Process.get(:piano_message_id)
+
     Enum.reduce(tool_calls, {context, nil}, fn call, {ctx, direct_response} ->
       {name, id, args} = normalize_tool_call(call)
 
       Logger.debug("Executing tool #{name} with args: #{inspect(args)}")
-      Events.broadcast(thread_id, {:tool_call, %{name: name, arguments: args}})
+      if message_id do
+        Events.broadcast(thread_id, {:tool_call, message_id, %{name: name, arguments: args}})
+      else
+        Events.broadcast(thread_id, {:tool_call, %{name: name, arguments: args}})
+      end
 
       result =
         case Enum.find(tools, fn t -> t.name == name end) do
@@ -287,4 +359,18 @@ defmodule Piano.Pipeline.AgentConsumer do
 
   defp normalize_args(args) when is_map(args), do: args
   defp normalize_args(args), do: Map.new(args)
+
+  defp telegram_cancelled?(chat_id, telegram_message_id) do
+    case :ets.whereis(:piano_telegram_cancelled) do
+      :undefined -> false
+      _ -> :ets.member(:piano_telegram_cancelled, {chat_id, telegram_message_id})
+    end
+  end
+
+  defp clear_telegram_cancelled(chat_id, telegram_message_id) do
+    case :ets.whereis(:piano_telegram_cancelled) do
+      :undefined -> :ok
+      _ -> :ets.delete(:piano_telegram_cancelled, {chat_id, telegram_message_id})
+    end
+  end
 end

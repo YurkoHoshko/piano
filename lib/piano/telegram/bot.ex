@@ -13,6 +13,7 @@ defmodule Piano.Telegram.Bot do
 
   alias Piano.{ChatGateway, Events}
   alias Piano.Chat.{Message, Thread}
+  alias Piano.Pipeline.MessageProducer
   alias Piano.Telegram.{API, SessionMapper}
 
   command("start", description: "Welcome message and usage tips")
@@ -196,16 +197,29 @@ defmodule Piano.Telegram.Bot do
   def handle({:command, :cancel, msg}, context) do
     chat_id = msg.chat.id
 
-    case :ets.lookup(:piano_pending_requests, chat_id) do
-      [{^chat_id, pid, placeholder_message_id, user_message_id}] ->
-        send(pid, :cancelled)
-        :ets.delete(:piano_pending_requests, chat_id)
-        token = bot_token()
-        send_or_edit(chat_id, placeholder_message_id, "⏹️ Cancelled", token, user_message_id)
-        answer_with_menu(context, "Request cancelled.")
+    pending_message_id = SessionMapper.get_pending_message_id(chat_id)
 
-      [] ->
+    case pending_message_id do
+      nil ->
         answer_with_menu(context, "No pending request to cancel.")
+
+      message_id ->
+        ensure_pending_requests_table()
+        ensure_cancelled_requests_table()
+
+        case :ets.lookup(:piano_pending_requests, {chat_id, message_id}) do
+          [{{^chat_id, ^message_id}, pid, placeholder_message_id}] ->
+            send(pid, :cancelled)
+            :ets.delete(:piano_pending_requests, {chat_id, message_id})
+            :ets.insert(:piano_telegram_cancelled, {{chat_id, message_id}})
+            SessionMapper.clear_pending_message_id(chat_id, message_id)
+            token = bot_token()
+            send_or_edit(chat_id, placeholder_message_id, "⏹️ Cancelled", token, message_id)
+            answer_with_menu(context, "Request cancelled.")
+
+          [] ->
+            answer_with_menu(context, "No pending request to cancel.")
+        end
     end
   end
 
@@ -298,13 +312,33 @@ defmodule Piano.Telegram.Bot do
     answer_with_menu(context, "Unknown command. Send /help to see available commands.")
   end
 
+  def handle({:deleted_business_messages, %{chat: %{id: chat_id}, message_ids: message_ids}}, _context) do
+    Enum.each(message_ids, &handle_message_deleted(chat_id, &1))
+    :ok
+  end
+
   def handle({:text, text, msg}, _context) do
     chat_id = msg.chat.id
     user_message_id = Map.get(msg, :message_id)
     token = bot_token()
+    ensure_pending_requests_table()
+    ensure_cancelled_requests_table()
+
+    pending_message_id = SessionMapper.get_pending_message_id(chat_id)
+
+    placeholder_text =
+      case pending_message_id do
+        nil -> "⏳ Processing..."
+        ^user_message_id -> "⏳ Processing..."
+        _other -> "⏳ Your message is queued, please wait..."
+      end
+
+    if pending_message_id == nil and not is_nil(user_message_id) do
+      SessionMapper.set_pending_message_id(chat_id, user_message_id)
+    end
 
     placeholder_message_id =
-      case API.send_message(chat_id, "⏳ Processing...",
+      case API.send_message(chat_id, placeholder_text,
              token: token,
              reply_to_message_id: user_message_id
            ) do
@@ -315,32 +349,45 @@ defmodule Piano.Telegram.Bot do
     case SessionMapper.get_or_create_thread(chat_id) do
       {:ok, thread_id} ->
         agent_id = SessionMapper.get_agent(chat_id)
-        metadata = %{chat_id: chat_id, thread_id: thread_id, agent_id: agent_id}
+        metadata = %{
+          chat_id: chat_id,
+          thread_id: thread_id,
+          agent_id: agent_id,
+          telegram_message_id: user_message_id
+        }
 
         case ChatGateway.handle_incoming(text, :telegram, metadata) do
           {:ok, message} ->
-            parent = self()
-
             spawn(fn ->
               ensure_pending_requests_table()
-              :ets.insert(:piano_pending_requests, {chat_id, self(), placeholder_message_id, user_message_id})
+              ensure_cancelled_requests_table()
+              :ets.insert(:piano_pending_requests, {{chat_id, user_message_id}, self(), placeholder_message_id})
               Events.subscribe(message.thread_id)
 
               result =
-                wait_for_response(chat_id, message.thread_id, token, placeholder_message_id, user_message_id)
+                wait_for_response(
+                  chat_id,
+                  message.thread_id,
+                  message.id,
+                  token,
+                  placeholder_message_id,
+                  user_message_id
+                )
 
-              :ets.delete(:piano_pending_requests, chat_id)
-              send(parent, {:request_complete, chat_id, result})
+              :ets.delete(:piano_pending_requests, {chat_id, user_message_id})
+              result
             end)
 
           {:error, reason} ->
             Logger.error("Failed to handle Telegram message: #{inspect(reason)}")
             send_or_edit(chat_id, placeholder_message_id, "Sorry, something went wrong. Please try again.", token, user_message_id)
+            SessionMapper.clear_pending_message_id(chat_id, user_message_id)
         end
 
       {:error, reason} ->
         Logger.error("Failed to get/create thread for chat #{chat_id}: #{inspect(reason)}")
         send_or_edit(chat_id, placeholder_message_id, "Sorry, something went wrong. Please try again.", token, user_message_id)
+        SessionMapper.clear_pending_message_id(chat_id, user_message_id)
     end
 
     :ok
@@ -390,15 +437,25 @@ defmodule Piano.Telegram.Bot do
     end
   end
 
-  defp wait_for_response(chat_id, thread_id, token, placeholder_message_id, user_message_id) do
-    wait_for_response(chat_id, thread_id, token, placeholder_message_id, user_message_id, 0, [])
+  defp wait_for_response(chat_id, thread_id, message_id, token, placeholder_message_id, user_message_id) do
+    wait_for_response(chat_id, thread_id, message_id, token, placeholder_message_id, user_message_id, false, 0, [])
   end
 
-  defp wait_for_response(chat_id, thread_id, token, placeholder_message_id, user_message_id, elapsed, tool_calls) do
-    remaining = 120_000 - elapsed
+  defp wait_for_response(
+         chat_id,
+         thread_id,
+         message_id,
+         token,
+         placeholder_message_id,
+         user_message_id,
+         started?,
+         elapsed,
+         tool_calls
+       ) do
+    remaining = if started?, do: 120_000 - elapsed, else: @still_working_timeout
     timeout = min(@still_working_timeout, remaining)
 
-    if remaining <= 0 do
+    if started? and remaining <= 0 do
       Logger.warning("Response timeout for thread #{thread_id}")
       send_or_edit(chat_id, placeholder_message_id, "Sorry, the request timed out. Please try again.", token, user_message_id)
       Events.unsubscribe(thread_id)
@@ -409,86 +466,210 @@ defmodule Piano.Telegram.Bot do
           Events.unsubscribe(thread_id)
           :cancelled
 
-        {:processing_started, _message_id} ->
+        {:processing_started, ^message_id} ->
+          send_or_edit(chat_id, placeholder_message_id, "⏳ Processing...", token, user_message_id)
           API.send_chat_action(chat_id, "typing", token: token)
-          wait_for_response(chat_id, thread_id, token, placeholder_message_id, user_message_id, elapsed, tool_calls)
+          wait_for_response(
+            chat_id,
+            thread_id,
+            message_id,
+            token,
+            placeholder_message_id,
+            user_message_id,
+            true,
+            0,
+            tool_calls
+          )
+
+        {:processing_started, _other_message_id} ->
+          wait_for_response(
+            chat_id,
+            thread_id,
+            message_id,
+            token,
+            placeholder_message_id,
+            user_message_id,
+            started?,
+            elapsed,
+            tool_calls
+          )
+
+        {:tool_call, ^message_id, tool_call} ->
+          updated_tool_calls = tool_calls ++ [tool_call]
+          send_or_edit(chat_id, placeholder_message_id, tool_calls_placeholder(updated_tool_calls), token, user_message_id)
+          wait_for_response(
+            chat_id,
+            thread_id,
+            message_id,
+            token,
+            placeholder_message_id,
+            user_message_id,
+            started?,
+            elapsed,
+            updated_tool_calls
+          )
+
+        {:tool_call, _other_message_id, _tool_call} ->
+          wait_for_response(
+            chat_id,
+            thread_id,
+            message_id,
+            token,
+            placeholder_message_id,
+            user_message_id,
+            started?,
+            elapsed,
+            tool_calls
+          )
 
         {:tool_call, tool_call} ->
           updated_tool_calls = tool_calls ++ [tool_call]
           send_or_edit(chat_id, placeholder_message_id, tool_calls_placeholder(updated_tool_calls), token, user_message_id)
-          wait_for_response(chat_id, thread_id, token, placeholder_message_id, user_message_id, elapsed, updated_tool_calls)
+          wait_for_response(
+            chat_id,
+            thread_id,
+            message_id,
+            token,
+            placeholder_message_id,
+            user_message_id,
+            started?,
+            elapsed,
+            updated_tool_calls
+          )
+
+        {:response_ready, ^message_id, agent_message} ->
+          send_long_response(chat_id, placeholder_message_id, agent_message.content, token, tool_calls, user_message_id)
+          Events.unsubscribe(thread_id)
+          :ok
+
+        {:response_ready, _other_message_id, _agent_message} ->
+          wait_for_response(
+            chat_id,
+            thread_id,
+            message_id,
+            token,
+            placeholder_message_id,
+            user_message_id,
+            started?,
+            elapsed,
+            tool_calls
+          )
 
         {:response_ready, agent_message} ->
           send_long_response(chat_id, placeholder_message_id, agent_message.content, token, tool_calls, user_message_id)
           Events.unsubscribe(thread_id)
           :ok
 
-        {:processing_error, _message_id, reason} ->
+        {:processing_error, ^message_id, reason} ->
           Logger.error("Processing error for thread #{thread_id}: #{inspect(reason)}")
           error_message = format_error_message(reason)
           send_or_edit(chat_id, placeholder_message_id, error_message, token, user_message_id)
           Events.unsubscribe(thread_id)
           :error
+
+        {:processing_error, _other_message_id, _reason} ->
+          wait_for_response(
+            chat_id,
+            thread_id,
+            message_id,
+            token,
+            placeholder_message_id,
+            user_message_id,
+            started?,
+            elapsed,
+            tool_calls
+          )
       after
         timeout ->
-          if elapsed + timeout < 120_000 do
-            send_or_edit(chat_id, placeholder_message_id, "⏳ Still working...", token, user_message_id)
-            API.send_chat_action(chat_id, "typing", token: token)
-            wait_for_response(chat_id, thread_id, token, placeholder_message_id, user_message_id, elapsed + timeout, tool_calls)
+          if not started? do
+            wait_for_response(
+              chat_id,
+              thread_id,
+              message_id,
+              token,
+              placeholder_message_id,
+              user_message_id,
+              started?,
+              elapsed,
+              tool_calls
+            )
           else
-            Logger.warning("Response timeout for thread #{thread_id}")
-            send_or_edit(chat_id, placeholder_message_id, "Sorry, the request timed out. Please try again.", token, user_message_id)
-            Events.unsubscribe(thread_id)
-            :timeout
+            if elapsed + timeout < 120_000 do
+              send_or_edit(chat_id, placeholder_message_id, "⏳ Still working...", token, user_message_id)
+              API.send_chat_action(chat_id, "typing", token: token)
+              wait_for_response(
+                chat_id,
+                thread_id,
+                message_id,
+                token,
+                placeholder_message_id,
+                user_message_id,
+                started?,
+                elapsed + timeout,
+                tool_calls
+              )
+            else
+              Logger.warning("Response timeout for thread #{thread_id}")
+              send_or_edit(chat_id, placeholder_message_id, "Sorry, the request timed out. Please try again.", token, user_message_id)
+              Events.unsubscribe(thread_id)
+              :timeout
+            end
           end
       end
     end
   end
 
-  defp send_or_edit(chat_id, nil, text, token, user_message_id) do
-    API.send_message(chat_id, text,
-      token: token,
-      reply_markup: main_keyboard(),
-      reply_to_message_id: user_message_id
-    )
+  defp send_or_edit(chat_id, message_id, text, token, user_message_id, opts \\ [])
+
+  defp send_or_edit(chat_id, nil, text, token, user_message_id, opts) do
+    opts =
+      [token: token, reply_markup: main_keyboard(), reply_to_message_id: user_message_id]
+      |> Keyword.merge(opts)
+
+    API.send_message(chat_id, text, opts)
   end
 
-  defp send_or_edit(chat_id, message_id, text, token, user_message_id) do
-    case API.edit_message_text(chat_id, message_id, text, token: token, reply_markup: main_keyboard()) do
+  defp send_or_edit(chat_id, message_id, text, token, user_message_id, opts) do
+    opts =
+      [token: token, reply_markup: main_keyboard(), reply_to_message_id: user_message_id]
+      |> Keyword.merge(opts)
+
+    case API.edit_message_text(chat_id, message_id, text, opts) do
       {:ok, _} ->
         :ok
 
       {:error, _reason} ->
-        API.send_message(chat_id, text,
-          token: token,
-          reply_markup: main_keyboard(),
-          reply_to_message_id: user_message_id
-        )
+        API.send_message(chat_id, text, opts)
     end
   end
 
   defp send_long_response(chat_id, placeholder_message_id, content, token, tool_calls, user_message_id) do
-    chunks = split_message(content)
+    {chunks, parse_mode} =
+      if tool_calls == [] do
+        {split_message(content), nil}
+      else
+        build_html_response_chunks(content, tool_calls)
+      end
+
+    response_opts =
+      case parse_mode do
+        nil -> []
+        value -> [parse_mode: value]
+      end
 
     case chunks do
       [] ->
         send_or_edit(chat_id, placeholder_message_id, "No response generated.", token, user_message_id)
 
       [first | rest] ->
-        send_or_edit(chat_id, placeholder_message_id, first, token, user_message_id)
+        send_or_edit(chat_id, placeholder_message_id, first, token, user_message_id, response_opts)
 
         Enum.each(rest, fn chunk ->
           Process.sleep(100)
           API.send_message(chat_id, chunk,
-            token: token,
-            parse_mode: "Markdown",
-            reply_markup: main_keyboard()
+            [token: token, reply_markup: main_keyboard(), reply_to_message_id: user_message_id] ++ response_opts
           )
         end)
-    end
-
-    if tool_calls != [] do
-      send_tool_calls_drawer(chat_id, tool_calls, token)
     end
   end
 
@@ -645,7 +826,7 @@ defmodule Piano.Telegram.Bot do
     rendered =
       args
       |> Enum.filter(fn {key, value} ->
-        key in ["command", "path", "url", "query", "file", "name"] and value != nil
+        key in ["command", "path", "url", "query"] and value != nil
       end)
       |> Enum.map(fn {key, value} -> "#{key}=#{format_tool_call_value(value)}" end)
       |> Enum.join(", ")
@@ -668,14 +849,58 @@ defmodule Piano.Telegram.Bot do
 
   defp format_tool_call_value(value), do: inspect(value, limit: 2, printable_limit: 120)
 
-  defp send_tool_calls_drawer(chat_id, tool_calls, token) do
-    body =
-      tool_calls
-      |> Enum.map_join("\n", &format_tool_call_line/1)
-      |> html_escape()
+  defp build_html_response_chunks(content, tool_calls) do
+    content_chunks = split_message(html_escape(content))
+    tool_call_blocks = format_tool_calls_blocks(tool_calls)
 
-    text = "<spoiler>Tool calls:\n#{body}</spoiler>"
-    API.send_message(chat_id, text, token: token, parse_mode: "HTML", reply_markup: main_keyboard())
+    cond do
+      tool_call_blocks == [] ->
+        {content_chunks, "HTML"}
+
+      content_chunks == [] ->
+        {tool_call_blocks, "HTML"}
+
+      true ->
+        [first_block | rest_blocks] = tool_call_blocks
+        last_chunk = List.last(content_chunks)
+
+        if byte_size(last_chunk) + 2 + byte_size(first_block) <= @max_message_length do
+          updated_chunks =
+            List.replace_at(content_chunks, -1, last_chunk <> "\n\n" <> first_block)
+
+          {updated_chunks ++ rest_blocks, "HTML"}
+        else
+          {content_chunks ++ tool_call_blocks, "HTML"}
+        end
+    end
+  end
+
+  defp format_tool_calls_blocks(tool_calls) do
+    lines = tool_calls |> Enum.map(&format_tool_call_line/1) |> Enum.map(&html_escape/1)
+    header = "<blockquote expandable>\n<b>🔧 Tool Calls</b>\n<pre>"
+    footer = "</pre>\n</blockquote>"
+    max_body_size = @max_message_length - byte_size(header) - byte_size(footer)
+
+    if max_body_size <= 0 do
+      [header <> footer]
+    else
+      {blocks, current} =
+        Enum.reduce(lines, {[], ""}, fn line, {blocks, current} ->
+          candidate = if current == "", do: line, else: current <> "\n" <> line
+
+          if byte_size(candidate) <= max_body_size do
+            {blocks, candidate}
+          else
+            {blocks ++ [current], line}
+          end
+        end)
+
+      blocks = if current == "", do: blocks, else: blocks ++ [current]
+
+      Enum.map(blocks, fn body ->
+        header <> body <> footer
+      end)
+    end
   end
 
   defp answer_with_menu(context, text, opts \\ []) do
@@ -689,10 +914,41 @@ defmodule Piano.Telegram.Bot do
     |> String.replace(">", "&gt;")
   end
 
+  defp handle_message_deleted(chat_id, message_id) do
+    ensure_pending_requests_table()
+    ensure_cancelled_requests_table()
+
+    :ets.insert(:piano_telegram_cancelled, {{chat_id, message_id}})
+    SessionMapper.clear_pending_message_id(chat_id, message_id)
+    MessageProducer.cancel_telegram(chat_id, message_id)
+
+    case :ets.lookup(:piano_pending_requests, {chat_id, message_id}) do
+      [{{^chat_id, ^message_id}, pid, placeholder_message_id}] ->
+        send(pid, :cancelled)
+        :ets.delete(:piano_pending_requests, {chat_id, message_id})
+
+        token = bot_token()
+        send_or_edit(chat_id, placeholder_message_id, "⏹️ Cancelled", token, message_id)
+
+      [] ->
+        :ok
+    end
+  end
+
   defp ensure_pending_requests_table do
     case :ets.whereis(:piano_pending_requests) do
       :undefined ->
         :ets.new(:piano_pending_requests, [:named_table, :public, :set])
+
+      _ref ->
+        :ok
+    end
+  end
+
+  defp ensure_cancelled_requests_table do
+    case :ets.whereis(:piano_telegram_cancelled) do
+      :undefined ->
+        :ets.new(:piano_telegram_cancelled, [:named_table, :public, :set])
 
       _ref ->
         :ok

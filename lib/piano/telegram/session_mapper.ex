@@ -100,6 +100,78 @@ defmodule Piano.Telegram.SessionMapper do
   end
 
   @doc """
+  Gets the pending Telegram message_id for a chat, or nil if none exists.
+  """
+  @spec get_pending_message_id(integer()) :: integer() | nil
+  def get_pending_message_id(chat_id) do
+    case get_session(chat_id) do
+      {:ok, %{pending_message_id: pending_message_id}} -> pending_message_id
+      {:ok, nil} -> nil
+      {:error, _} -> nil
+    end
+  end
+
+  @doc """
+  Sets the pending Telegram message_id for a chat.
+  """
+  @spec set_pending_message_id(integer(), integer()) :: :ok | {:error, term()}
+  def set_pending_message_id(chat_id, pending_message_id) do
+    case get_session(chat_id) do
+      {:ok, %Session{} = session} ->
+        session
+        |> Ash.Changeset.for_update(:update, %{pending_message_id: pending_message_id})
+        |> Ash.update()
+        |> case do
+          {:ok, _} -> :ok
+          {:error, _} = error -> error
+        end
+
+      {:ok, nil} ->
+        with {:ok, thread} <- Ash.create(Thread, %{title: "Telegram Chat"}, action: :create),
+             {:ok, _session} <-
+               Session
+               |> Ash.Changeset.for_create(:create, %{
+                 chat_id: chat_id,
+                 thread_id: thread.id,
+                 pending_message_id: pending_message_id
+               })
+               |> Ash.create() do
+          :ok
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  @doc """
+  Clears the pending Telegram message_id for a chat.
+  """
+  @spec clear_pending_message_id(integer(), integer() | nil) :: :ok | {:error, term()}
+  def clear_pending_message_id(chat_id, expected_message_id \\ nil) do
+    case get_session(chat_id) do
+      {:ok, %Session{} = session} ->
+        if expected_message_id == nil or session.pending_message_id == expected_message_id do
+          session
+          |> Ash.Changeset.for_update(:update, %{pending_message_id: nil})
+          |> Ash.update()
+          |> case do
+            {:ok, _} -> :ok
+            {:error, _} = error -> error
+          end
+        else
+          :ok
+        end
+
+      {:ok, nil} ->
+        :ok
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  @doc """
   Sets the active agent for a chat.
   """
   @spec set_agent(integer(), String.t()) :: :ok | {:error, term()}

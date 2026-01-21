@@ -41,6 +41,11 @@ defmodule Piano.Agents.Agent do
       allow_nil? false
     end
 
+    attribute :max_iterations, :integer do
+      default 5
+      allow_nil? false
+    end
+
     timestamps()
   end
 
@@ -48,7 +53,16 @@ defmodule Piano.Agents.Agent do
     defaults [:read]
 
     create :create do
-      accept [:name, :description, :model, :system_prompt, :soul, :enabled_tools, :enabled_skills]
+      accept [
+        :name,
+        :description,
+        :model,
+        :system_prompt,
+        :soul,
+        :enabled_tools,
+        :enabled_skills,
+        :max_iterations
+      ]
     end
 
     read :list do
@@ -56,7 +70,16 @@ defmodule Piano.Agents.Agent do
     end
 
     update :update_config do
-      accept [:name, :description, :model, :system_prompt, :soul, :enabled_tools, :enabled_skills]
+      accept [
+        :name,
+        :description,
+        :model,
+        :system_prompt,
+        :soul,
+        :enabled_tools,
+        :enabled_skills,
+        :max_iterations
+      ]
     end
 
     update :append_soul do

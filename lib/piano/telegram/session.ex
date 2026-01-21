@@ -14,6 +14,10 @@ defmodule Piano.Telegram.Session do
       allow_nil? false
     end
 
+    attribute :pending_message_id, :integer do
+      allow_nil? true
+    end
+
     attribute :thread_id, :uuid do
       allow_nil? false
     end
@@ -47,7 +51,7 @@ defmodule Piano.Telegram.Session do
     end
 
     update :update do
-      accept [:thread_id, :agent_id]
+      accept [:thread_id, :agent_id, :pending_message_id]
     end
 
     read :by_chat_id do

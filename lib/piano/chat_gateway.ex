@@ -13,7 +13,8 @@ defmodule Piano.ChatGateway do
           optional(:thread_id) => String.t(),
           optional(:agent_id) => String.t(),
           optional(:title) => String.t(),
-          optional(:chat_id) => integer()
+          optional(:chat_id) => integer(),
+          optional(:telegram_message_id) => integer()
         }
 
   @doc """
@@ -36,7 +37,9 @@ defmodule Piano.ChatGateway do
       MessageProducer.enqueue(%{
         thread_id: thread.id,
         message_id: message.id,
-        agent_id: agent_id
+        agent_id: agent_id,
+        chat_id: metadata[:chat_id],
+        telegram_message_id: metadata[:telegram_message_id]
       })
 
       {:ok, message}
