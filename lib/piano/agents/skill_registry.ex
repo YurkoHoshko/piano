@@ -5,7 +5,7 @@ defmodule Piano.Agents.SkillRegistry do
   YAML frontmatter is parsed to extract name and description.
   """
 
-  @skills_dir ".piano/skills"
+  @skills_dir ".agents/skills"
   @ets_table :piano_skills
 
   @type skill :: %{
@@ -106,9 +106,13 @@ defmodule Piano.Agents.SkillRegistry do
         |> Enum.join("\n")
 
       """
-      <available_skills>
-      The following skills are available. Use the load_skill tool to load a skill's full instructions.
+      Use the load_skill tool to load a skill's full instructions.
+      Any binaries or executables referenced by a skill should be run via the run_skill tool.
+      Example: if the skill root is ".agents/skills/foo" and it references "./scripts/run.sh",
+      use "run_skill(foo, "./scripts/run.sh")".
 
+      The following skills are available.
+      <available_skills>
       #{skill_list}
       </available_skills>
       """

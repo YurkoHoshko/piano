@@ -71,4 +71,25 @@ defmodule PianoWeb.AdminAgentsPageTest do
     {:ok, updated} = Ash.get(Agent, agent.id)
     assert updated.soul == "Keep responses concise."
   end
+
+  test "can delete agent", %{conn: conn} do
+    {:ok, agent} =
+      Ash.create(Agent, %{
+        name: "Agent To Delete",
+        model: "gpt-oss-20b",
+        system_prompt: "Test prompt"
+      }, action: :create)
+
+    {:ok, view, _html} = live(conn, "/dashboard/agents?token=test_admin")
+
+    assert render(view) =~ "Agent To Delete"
+
+    view
+    |> element("button[phx-click='delete'][phx-value-id='#{agent.id}']")
+    |> render_click()
+
+    refute render(view) =~ "Agent To Delete"
+
+    assert {:error, _} = Ash.get(Agent, agent.id)
+  end
 end

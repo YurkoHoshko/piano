@@ -342,8 +342,18 @@ defmodule Piano.Telegram.Bot do
              token: token,
              reply_to_message_id: user_message_id
            ) do
-        {:ok, %{message_id: mid}} -> mid
-        _ -> nil
+        {:ok, %{message_id: mid}} ->
+          ensure_last_text_table()
+          :ets.insert(:piano_telegram_last_text, {{chat_id, mid}, placeholder_text})
+          mid
+
+        {:error, reason} ->
+          Logger.warning("Telegram send_message failed for chat #{chat_id}: #{inspect(reason)}")
+          nil
+
+        other ->
+          Logger.warning("Telegram send_message unexpected response for chat #{chat_id}: #{inspect(other)}")
+          nil
       end
 
     case SessionMapper.get_or_create_thread(chat_id) do
@@ -467,7 +477,9 @@ defmodule Piano.Telegram.Bot do
           :cancelled
 
         {:processing_started, ^message_id} ->
-          send_or_edit(chat_id, placeholder_message_id, "⏳ Processing...", token, user_message_id)
+          send_or_edit(chat_id, placeholder_message_id, "⏳ Processing...", token, user_message_id,
+            allow_send: false
+          )
           API.send_chat_action(chat_id, "typing", token: token)
           wait_for_response(
             chat_id,
@@ -496,7 +508,9 @@ defmodule Piano.Telegram.Bot do
 
         {:tool_call, ^message_id, tool_call} ->
           updated_tool_calls = tool_calls ++ [tool_call]
-          send_or_edit(chat_id, placeholder_message_id, tool_calls_placeholder(updated_tool_calls), token, user_message_id)
+          send_or_edit(chat_id, placeholder_message_id, tool_calls_placeholder(updated_tool_calls), token, user_message_id,
+            allow_send: false
+          )
           wait_for_response(
             chat_id,
             thread_id,
@@ -524,7 +538,9 @@ defmodule Piano.Telegram.Bot do
 
         {:tool_call, tool_call} ->
           updated_tool_calls = tool_calls ++ [tool_call]
-          send_or_edit(chat_id, placeholder_message_id, tool_calls_placeholder(updated_tool_calls), token, user_message_id)
+          send_or_edit(chat_id, placeholder_message_id, tool_calls_placeholder(updated_tool_calls), token, user_message_id,
+            allow_send: false
+          )
           wait_for_response(
             chat_id,
             thread_id,
@@ -595,7 +611,9 @@ defmodule Piano.Telegram.Bot do
             )
           else
             if elapsed + timeout < 120_000 do
-              send_or_edit(chat_id, placeholder_message_id, "⏳ Still working...", token, user_message_id)
+              send_or_edit(chat_id, placeholder_message_id, "⏳ Still working...", token, user_message_id,
+                allow_send: false
+              )
               API.send_chat_action(chat_id, "typing", token: token)
               wait_for_response(
                 chat_id,
@@ -622,24 +640,56 @@ defmodule Piano.Telegram.Bot do
   defp send_or_edit(chat_id, message_id, text, token, user_message_id, opts \\ [])
 
   defp send_or_edit(chat_id, nil, text, token, user_message_id, opts) do
-    opts =
-      [token: token, reply_markup: main_keyboard(), reply_to_message_id: user_message_id]
-      |> Keyword.merge(opts)
+    {allow_send, opts} = Keyword.pop(opts, :allow_send, true)
 
-    API.send_message(chat_id, text, opts)
+    if allow_send do
+      opts =
+        [token: token, reply_markup: main_keyboard(), reply_to_message_id: user_message_id]
+        |> Keyword.merge(opts)
+
+      Logger.debug("Telegram send_message (no placeholder) chat=#{chat_id} reply_to=#{user_message_id}")
+      API.send_message(chat_id, text, opts)
+    else
+      :ok
+    end
   end
 
   defp send_or_edit(chat_id, message_id, text, token, user_message_id, opts) do
-    opts =
-      [token: token, reply_markup: main_keyboard(), reply_to_message_id: user_message_id]
-      |> Keyword.merge(opts)
+    {allow_send, opts} = Keyword.pop(opts, :allow_send, true)
+    ensure_last_text_table()
 
-    case API.edit_message_text(chat_id, message_id, text, opts) do
-      {:ok, _} ->
-        :ok
+    if same_last_text?(chat_id, message_id, text) do
+      :ok
+    else
+      edit_opts =
+        [token: token]
+        |> Keyword.merge(opts)
 
-      {:error, _reason} ->
-        API.send_message(chat_id, text, opts)
+      send_opts =
+        [token: token, reply_markup: main_keyboard(), reply_to_message_id: user_message_id]
+        |> Keyword.merge(opts)
+
+      Logger.debug("Telegram edit_message_text chat=#{chat_id} message_id=#{message_id}")
+      case API.edit_message_text(chat_id, message_id, text, edit_opts) do
+        {:ok, _} ->
+          :ets.insert(:piano_telegram_last_text, {{chat_id, message_id}, text})
+          :ok
+
+        {:error, reason} ->
+          if not_modified_error?(reason) do
+            :ets.insert(:piano_telegram_last_text, {{chat_id, message_id}, text})
+            :ok
+          else
+            Logger.warning("Telegram edit_message_text failed for chat #{chat_id}: #{inspect(reason)}")
+
+            if allow_send and should_fallback_send?(reason) do
+              Logger.debug("Telegram send_message fallback chat=#{chat_id} reply_to=#{user_message_id}")
+              API.send_message(chat_id, text, send_opts)
+            else
+              :ok
+            end
+          end
+      end
     end
   end
 
@@ -914,6 +964,18 @@ defmodule Piano.Telegram.Bot do
     |> String.replace(">", "&gt;")
   end
 
+  defp should_fallback_send?(_reason), do: false
+
+  defp not_modified_error?(%{message: message}) when is_binary(message) do
+    String.contains?(message, "message is not modified")
+  end
+
+  defp not_modified_error?(%{description: description}) when is_binary(description) do
+    String.contains?(description, "message is not modified")
+  end
+
+  defp not_modified_error?(_reason), do: false
+
   defp handle_message_deleted(chat_id, message_id) do
     ensure_pending_requests_table()
     ensure_cancelled_requests_table()
@@ -954,4 +1016,23 @@ defmodule Piano.Telegram.Bot do
         :ok
     end
   end
+
+  defp ensure_last_text_table do
+    case :ets.whereis(:piano_telegram_last_text) do
+      :undefined ->
+        :ets.new(:piano_telegram_last_text, [:named_table, :public, :set])
+
+      _ref ->
+        :ok
+    end
+  end
+
+  defp same_last_text?(chat_id, message_id, text) when is_integer(message_id) do
+    case :ets.lookup(:piano_telegram_last_text, {chat_id, message_id}) do
+      [{{^chat_id, ^message_id}, ^text}] -> true
+      _ -> false
+    end
+  end
+
+  defp same_last_text?(_chat_id, _message_id, _text), do: false
 end

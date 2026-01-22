@@ -1,8 +1,6 @@
 defmodule PianoWeb.Router do
   use PianoWeb, :router
 
-  import Phoenix.LiveDashboard.Router
-
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -34,16 +32,16 @@ defmodule PianoWeb.Router do
     live "/agents/:id", AgentEditLive
   end
 
-  if Application.compile_env(:piano, :dev_routes) do
-    scope "/" do
-      pipe_through [:browser, :admin]
+  import Phoenix.LiveDashboard.Router
 
-      live_dashboard "/dashboard",
-        metrics: PianoWeb.Telemetry,
-        ecto_repos: [Piano.Repo],
-        additional_pages: [
-          agents: PianoWeb.Admin.AgentsPage
-        ]
-    end
+  scope "/" do
+    pipe_through [:browser, :admin]
+
+    live_dashboard "/dashboard",
+      metrics: PianoWeb.Telemetry,
+      ecto_repos: [Piano.Repo],
+      additional_pages: [
+        agents: PianoWeb.Admin.AgentsPage
+      ]
   end
 end

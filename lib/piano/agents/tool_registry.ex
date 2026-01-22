@@ -18,6 +18,26 @@ defmodule Piano.Agents.ToolRegistry do
       callback: &__MODULE__.execute_load_skill/1
     ],
     [
+      name: "run_skill",
+      description:
+        "Run an executable from a skill by name. The exec path must be relative to the skill root.",
+      parameter_schema: [
+        name: [type: :string, required: true, doc: "The name of the skill to run"],
+        exec: [type: :string, required: true, doc: "Relative path to the executable under the skill root (e.g., scripts/run.sh)"],
+        args: [
+          type: {:list, :string},
+          required: false,
+          doc: "Optional list of arguments to pass to the executable"
+        ],
+        # return_direct: [
+        #   type: :boolean,
+        #   required: false,
+        #   doc: "If true, return raw output for direct reply without further processing"
+        # ]
+      ],
+      callback: &__MODULE__.execute_run_skill/1
+    ],
+    [
       name: "read_file",
       description: "Read the contents of a file at the given path",
       parameter_schema: [
@@ -47,14 +67,14 @@ defmodule Piano.Agents.ToolRegistry do
     [
       name: "bash",
       description:
-        "Execute a shell command and return the output. If return_direct is true, the tool may return output intended for direct reply and skip further LLM processing.",
+        "Execute a shell command and return the output. Use ",
       parameter_schema: [
         command: [type: :string, required: true, doc: "The shell command to execute"],
-        return_direct: [
-          type: :boolean,
-          required: false,
-          doc: "If true, return output suitable for direct reply without another LLM call"
-        ]
+        # return_direct: [
+        #   type: :boolean,
+        #   required: false,
+        #   doc: "If true, return output suitable for direct reply without another LLM call"
+        # ]
       ],
       callback: &__MODULE__.execute_bash/1
     ],
@@ -145,6 +165,70 @@ defmodule Piano.Agents.ToolRegistry do
   end
 
   def execute_load_skill(_), do: {:error, "Missing required parameter: name"}
+
+  @doc """
+  Execute the run_skill tool.
+  """
+  @spec execute_run_skill(map()) :: {:ok, String.t()} | {:error, String.t()}
+  def execute_run_skill(args) when is_map(args) do
+    skill_name = fetch_param(args, :name)
+    exec_path = fetch_param(args, :exec)
+    exec_args = normalize_args_list(fetch_param(args, :args))
+    return_direct = fetch_param(args, :return_direct) == true
+
+    cond do
+      is_nil(skill_name) ->
+        {:error, "Missing required parameter: name"}
+
+      is_nil(exec_path) ->
+        {:error, "Missing required parameter: exec"}
+
+      Path.type(exec_path) == :absolute ->
+        {:error, "exec must be a relative path under the skill root"}
+
+      true ->
+        case find_skill(skill_name) do
+          nil ->
+            {:error, "Skill not found: #{skill_name}"}
+
+          skill ->
+            root = Path.dirname(skill.path)
+            expanded_root = Path.expand(root)
+            expanded_exec = Path.expand(Path.join(expanded_root, exec_path))
+
+            if within_root?(expanded_exec, expanded_root) do
+              if File.exists?(expanded_exec) do
+                try do
+                  {output, exit_code} =
+                    System.cmd(expanded_exec, exec_args, stderr_to_stdout: true)
+
+                  {output, truncated?} = truncate_output(output)
+
+                  if return_direct do
+                    {:ok, %{output: output, return_direct: true, exit_code: exit_code, truncated: truncated?}}
+                  else
+                    result = """
+                    Exit code: #{exit_code}
+                    Output:
+                    #{output}
+                    """
+
+                    {:ok, append_truncation_notice(result, truncated?)}
+                  end
+                rescue
+                  e -> {:error, "Executable failed: #{Exception.message(e)}"}
+                end
+              else
+                {:error, "Executable not found: #{expanded_exec}"}
+              end
+            else
+              {:error, "exec must be within the skill root: #{expanded_root}"}
+            end
+        end
+    end
+  end
+
+  def execute_run_skill(_), do: {:error, "Missing required parameters: name, exec"}
 
   @doc """
   Execute the create_file tool.
@@ -337,4 +421,18 @@ defmodule Piano.Agents.ToolRegistry do
   end
 
   defp append_truncation_notice(result, false), do: result
+
+  defp find_skill(skill_name) do
+    SkillRegistry.list_available()
+    |> Enum.find(fn skill -> skill.name == skill_name end)
+  end
+
+  defp normalize_args_list(nil), do: []
+  defp normalize_args_list(args) when is_list(args), do: Enum.map(args, &to_string/1)
+  defp normalize_args_list(arg) when is_binary(arg), do: [arg]
+  defp normalize_args_list(arg), do: [to_string(arg)]
+
+  defp within_root?(path, root) do
+    path == root or String.starts_with?(path, root <> "/")
+  end
 end

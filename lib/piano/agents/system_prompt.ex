@@ -41,7 +41,8 @@ defmodule Piano.Agents.SystemPrompt do
       schema
       |> Enum.map(fn {key, opts} ->
         required = if opts[:required], do: "required", else: "optional"
-        "#{key} (#{opts[:type] || "any"}, #{required})"
+        type_str = format_type(opts[:type])
+        "#{key} (#{type_str}, #{required})"
       end)
       |> Enum.join(", ")
 
@@ -57,6 +58,11 @@ defmodule Piano.Agents.SystemPrompt do
 
   defp format_params_suffix(""), do: ""
   defp format_params_suffix(params), do: " (#{params})"
+
+  defp format_type(nil), do: "any"
+  defp format_type({:list, subtype}), do: "list(#{format_type(subtype)})"
+  defp format_type(type) when is_atom(type), do: Atom.to_string(type)
+  defp format_type(type), do: inspect(type)
 
   defp format_soul(nil), do: ""
   defp format_soul(""), do: ""

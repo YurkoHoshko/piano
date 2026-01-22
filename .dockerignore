@@ -1,0 +1,40 @@
+# Git
+.git
+.gitignore
+
+# Elixir/Mix build artifacts
+_build/
+deps/
+*.ez
+
+# Generated on crash
+erl_crash.dump
+
+# Static artifacts
+/priv/static/assets/
+/priv/static/cache_manifest.json
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Temporary files
+tmp/
+.elixir_ls/
+
+# Node modules (if any)
+node_modules/
+
+# Test files
+/test/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker
+Dockerfile*
+docker-compose*

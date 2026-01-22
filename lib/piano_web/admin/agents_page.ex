@@ -20,7 +20,7 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
        agents: load_agents(),
         available_models: load_models(),
         available_tools: ToolRegistry.list_available(),
-        available_skills: SkillRegistry.list_available(),
+        available_skills: load_skill_names(),
         agent: nil,
         create_form: build_create_form(),
         form: nil,
@@ -61,8 +61,9 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
          |> assign(
            agents: load_agents(),
            create_form: build_create_form(),
-           available_models: load_models(),
-           show_create_modal: false
+          available_models: load_models(),
+          available_skills: load_skill_names(),
+          show_create_modal: false
          )
          |> put_flash(:info, "Agent created successfully")}
 
@@ -143,6 +144,26 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
       end
 
     update_agent_field(socket, :enabled_tools, new_tools)
+  end
+
+  @impl true
+  def handle_event("delete", %{"id" => agent_id}, socket) do
+    case Ash.get(Agent, agent_id) do
+      {:ok, agent} ->
+        case Ash.destroy(agent) do
+          :ok ->
+            {:noreply,
+             socket
+             |> assign(agents: load_agents(), agent: nil, form: nil)
+             |> put_flash(:info, "Agent deleted successfully")}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Failed to delete agent")}
+        end
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Agent not found")}
+    end
   end
 
   @impl true
@@ -236,6 +257,11 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
     end
   end
 
+  defp load_skill_names do
+    SkillRegistry.list_available()
+    |> Enum.map(& &1.name)
+  end
+
   defp parse_int(nil, default), do: default
 
   defp parse_int(value, default) when is_binary(value) do
@@ -324,6 +350,14 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
                           >
                             Edit
                           </button>
+                          <button
+                            type="button"
+                            class="btn btn-danger btn-sm ms-1"
+                            phx-click="delete"
+                            phx-value-id={agent.id}
+                          >
+                            Delete
+                          </button>
                         </td>
                       </tr>
                     <% end %>
@@ -349,7 +383,7 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
                   <span aria-hidden="true">&times;</span>
                 </button>
               </div>
-              <div class="modal-body">
+              <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
               <.form for={@create_form} id="create-agent-form" phx-submit="create">
                   <div class="mb-3">
                     <label>Name</label>
@@ -449,7 +483,7 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
                   <span aria-hidden="true">&times;</span>
                 </button>
               </div>
-              <div class="modal-body">
+              <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
                 <.form for={@form} id="edit-agent-form" phx-change="validate" phx-submit="save">
                   <div class="mb-3">
                     <label>Name</label>
@@ -564,7 +598,7 @@ if Code.ensure_loaded?(Phoenix.LiveDashboard.PageBuilder) do
                     <label>Enabled Skills</label>
                     <%= if @available_skills == [] do %>
                       <p class="text-muted">
-                        No skills available. Add .md files to .agents/skills/ directory.
+                        No skills available. Add SKILL.md files to .agents/skills/&lt;skill&gt;/ directory.
                       </p>
                     <% else %>
                       <div class="mb-3">

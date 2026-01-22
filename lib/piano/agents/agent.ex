@@ -49,8 +49,30 @@ defmodule Piano.Agents.Agent do
     timestamps()
   end
 
+  relationships do
+    has_many :messages, Piano.Chat.Message
+    has_many :telegram_sessions, Piano.Telegram.Session
+  end
+
   actions do
     defaults [:read]
+
+    destroy :destroy do
+      primary? true
+      require_atomic? false
+
+      change fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, fn changeset ->
+          import Ecto.Query
+          agent_id = changeset.data.id
+
+          Piano.Repo.delete_all(from(m in "messages", where: m.agent_id == ^agent_id))
+          Piano.Repo.delete_all(from(s in "telegram_sessions", where: s.agent_id == ^agent_id))
+
+          changeset
+        end)
+      end
+    end
 
     create :create do
       accept [

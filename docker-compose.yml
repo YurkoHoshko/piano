@@ -1,0 +1,44 @@
+services:
+  piano:
+    build: .
+    container_name: piano
+    ports:
+      - "4000:4000"
+    environment:
+      - DATABASE_PATH=/data/piano.db
+      - SECRET_KEY_BASE=${SECRET_KEY_BASE}
+      - PHX_HOST=localhost
+      - PORT=4000
+      - LLAMA_SWAP_URL=http://llama-swap:8080/v1
+      - LLM_MODEL=glm-47-flash
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    volumes:
+      - piano_data:/data
+      - ./.agents:/app/.agents:ro
+    restart: unless-stopped
+    depends_on:
+      - llama-swap
+
+  llama-swap:
+    image: local/llama-swap:custom
+    container_name: piano-llama-swap
+    restart: unless-stopped
+    command: ["--config", "/app/config.yaml", "--listen", "0.0.0.0:8080"]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ports:
+      - "8000:8080"
+    volumes:
+      - ${HOME}/.cache/llama.cpp:/models:ro
+      - ./infra/llama-swap/config.yaml:/app/config.yaml:ro
+
+volumes:
+  piano_data:

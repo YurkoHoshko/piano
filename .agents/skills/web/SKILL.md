@@ -7,31 +7,31 @@ description: Use when need to check out website / fill in a form / etc.
 shell-based web browser for LLMs that converts web pages to markdown, executes js, and interacts with pages.
 
 # Convert a webpage to markdown
-web https://example.com
+bin/web https://example.com
 
 # Take a screenshot while scraping
-web https://example.com --screenshot page.png
+bin/web https://example.com --screenshot page.png
 
 # Execute JavaScript and capture log output along with markdown content
-web https://example.com --js "console.log(document.title)"
+bin/web https://example.com --js "console.log(document.title)"
 
 # Fill and submit a form
-web https://login.example.com \
+bin/web https://login.example.com \
     --form "login_form" \
     --input "username" --value "myuser" \
     --input "password" --value "mypass"
 
 # Basic scraping
-web https://example.com
+bin/web https://example.com
 
 # Output raw HTML
-web https://example.com --raw > output.html
+bin/web https://example.com --raw > output.html
 
 # With truncation and screenshot
 web example.com --screenshot screenshot.png --truncate-after 123
 
 # Form submission with Phoenix LiveView support
-web http://localhost:4000/users/log-in \
+bin/web http://localhost:4000/users/log-in \
     --form "login_form" \
     --input "user[email]" --value "foo@bar" \
     --input "user[password]" --value "secret" \
