@@ -4,7 +4,7 @@ config :piano,
   ecto_repos: [Piano.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-config :piano, :ash_domains, [Piano.Chat, Piano.Agents, Piano.Telegram]
+config :piano, :ash_domains, [Piano.Chat, Piano.Agents, Piano.Telegram, Piano.Core]
 
 config :piano, PianoWeb.Endpoint,
   url: [host: "localhost"],
