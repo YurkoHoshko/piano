@@ -18,6 +18,9 @@ defmodule PianoWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :codex_api do
+  end
+
   scope "/", PianoWeb do
     pipe_through :browser
 
@@ -43,5 +46,15 @@ defmodule PianoWeb.Router do
       additional_pages: [
         agents: PianoWeb.Admin.AgentsPage
       ]
+  end
+
+  if Application.compile_env(:piano, :test_routes, false) do
+    scope "/v1", PianoWeb do
+      pipe_through :codex_api
+
+      post "/chat/completions", CodexReplayController, :chat_completions
+      post "/responses", CodexReplayController, :responses
+      get "/models", CodexReplayController, :models
+    end
   end
 end

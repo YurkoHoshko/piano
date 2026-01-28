@@ -1,0 +1,43 @@
+[
+  {
+    "match": {
+      "endpoint": "chat.completions",
+      "model": "gpt-4",
+      "messages": [
+        {"role": "user", "content": "Hello"}
+      ]
+    },
+    "response": {
+      "content": "Hi from replay!",
+      "finish_reason": "stop"
+    }
+  },
+  {
+    "match": {
+      "endpoint": "responses",
+      "input": "Ping"
+    },
+    "response": {
+      "content": "Pong from replay!",
+      "status": "completed"
+    }
+  },
+  {
+    "match": {
+      "endpoint": "chat.completions"
+    },
+    "response": {
+      "content": "Generic replay response.",
+      "finish_reason": "stop"
+    }
+  },
+  {
+    "match": {
+      "endpoint": "responses"
+    },
+    "response": {
+      "content": "Generic replay response.",
+      "status": "completed"
+    }
+  }
+]

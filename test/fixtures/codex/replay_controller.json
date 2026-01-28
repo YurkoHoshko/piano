@@ -1,0 +1,25 @@
+[
+  {
+    "match": {
+      "endpoint": "chat.completions",
+      "model": "gpt-4",
+      "messages": [
+        {"role": "user", "content": "Hello"}
+      ]
+    },
+    "response": {
+      "content": "Hi from replay!",
+      "finish_reason": "stop"
+    }
+  },
+  {
+    "match": {
+      "endpoint": "responses",
+      "input": "Ping"
+    },
+    "response": {
+      "content": "Pong from replay!",
+      "status": "completed"
+    }
+  }
+]

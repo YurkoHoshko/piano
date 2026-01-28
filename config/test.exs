@@ -16,6 +16,9 @@ config :phoenix, :plug_init_mode, :runtime
 config :phoenix_live_view, :enable_expensive_runtime_checks, true
 
 config :piano, dev_routes: true
+config :piano, test_routes: true
+
+config :piano, :codex_replay_paths, []
 
 # Use mock LLM for tests
 config :piano, :llm_impl, Piano.LLM.Mock
