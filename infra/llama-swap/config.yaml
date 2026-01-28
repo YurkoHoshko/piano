@@ -14,6 +14,8 @@ macros:
     --temp 0.15 --min-p 0.01
   glm_flags: >
     --temp 0.2 --top-k 50 --top-p 0.95 --min-p 0.01 --dry-multiplier 1.1
+  glm_q_flags: >
+    --temp 0.7 --top-p 1.0 --min-p 0.01 --dry-multiplier 1.1
 
 models:
   glm-47-flash:
@@ -22,6 +24,15 @@ models:
       llama-server ${network_flags} ${context_flags} ${gpt_oss_flags} --n-cpu-moe 35 --model /models/glm-47-flash
     env:
       - CUDA_VISIBLE_DEVICES=0
+    proxy: http://127.0.0.1:${PORT}
+    checkEndpoint: /health
+
+  glm-47-flash-q:
+    name: glm-47-flash-q
+    cmd: |
+      llama-server ${network_flags} ${context_flags} ${glm_q_flags} --model /models/glm-47-flash-q
+    env:
+      - CUDA_VISIBLE_DEVICES=0,1
     proxy: http://127.0.0.1:${PORT}
     checkEndpoint: /health
 
