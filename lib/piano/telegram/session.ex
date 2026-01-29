@@ -1,4 +1,7 @@
 defmodule Piano.Telegram.Session do
+  @moduledoc """
+  Stores Telegram chat session state for thread and agent mapping.
+  """
   use Ash.Resource,
     domain: Piano.Telegram,
     data_layer: AshSqlite.DataLayer

@@ -80,204 +80,31 @@ defmodule Piano.Telegram.Bot do
   end
 
   def handle({:command, :thread, %{text: text} = msg}, context) do
-    chat_id = msg.chat.id
-
-    case parse_thread_id(text) do
-      {:ok, thread_id} ->
-        case Ash.get(Thread, thread_id) do
-          {:ok, thread} ->
-            SessionMapper.set_thread(chat_id, thread.id)
-            title = thread.title || "Untitled"
-            answer_with_menu(context, "✅ Switched to thread: #{title}")
-
-          {:error, _} ->
-            answer_with_menu(context, "❌ Thread not found. Please check the ID and try again.")
-        end
-
-      :error ->
-        answer_with_menu(context, "Usage: /thread <thread_id>\n\nExample: /thread abc123-def456-...")
-    end
+    handle_thread_command(text, msg.chat.id, context)
   end
 
   def handle({:command, :status, msg}, context) do
-    chat_id = msg.chat.id
-
-    case SessionMapper.get_thread(chat_id) do
-      nil ->
-        answer_with_menu(context, "No active thread. Send a message to start one!")
-
-      thread_id ->
-        case Ash.get(Thread, thread_id) do
-          {:ok, thread} ->
-            query = Ash.Query.for_read(Message, :list_by_thread, %{thread_id: thread_id})
-            message_count = case Ash.read(query) do
-              {:ok, messages} -> length(messages)
-              _ -> 0
-            end
-
-            title = thread.title || "Untitled"
-            created = Calendar.strftime(thread.inserted_at, "%Y-%m-%d %H:%M")
-
-            status = """
-            📊 *Session Status*
-
-            🧵 Thread: #{title}
-            🆔 ID: `#{thread_id}`
-            📝 Messages: #{message_count}
-            📅 Created: #{created}
-            """
-
-            answer_with_menu(context, status, parse_mode: "Markdown")
-
-          {:error, _} ->
-            answer_with_menu(context, "No active thread. Send a message to start one!")
-        end
-    end
+    handle_status_command(msg.chat.id, context)
   end
 
   def handle({:command, :history, msg}, context) do
-    chat_id = msg.chat.id
-
-    case SessionMapper.get_thread(chat_id) do
-      nil ->
-        answer_with_menu(context, "No active thread. Send a message to start one!")
-
-      thread_id ->
-        query = Ash.Query.for_read(Message, :list_by_thread, %{thread_id: thread_id})
-
-        case Ash.read(query) do
-          {:ok, messages} when messages != [] ->
-            sorted = Enum.sort_by(messages, & &1.inserted_at, DateTime)
-            recent = Enum.take(sorted, -10)
-
-            history =
-              Enum.map_join(recent, "\n\n", fn msg ->
-                prefix = if msg.role == :user, do: "👤 You", else: "🤖 Bot"
-                content = String.slice(msg.content, 0, 100)
-                content = if String.length(msg.content) > 100, do: content <> "...", else: content
-                "#{prefix}: #{content}"
-              end)
-
-            answer_with_menu(context, "📜 *Recent Messages*\n\n#{history}", parse_mode: "Markdown")
-
-          {:ok, []} ->
-            answer_with_menu(context, "No messages in this thread yet.")
-
-          {:error, _} ->
-            answer_with_menu(context, "Failed to load history.")
-        end
-    end
+    handle_history_command(msg.chat.id, context)
   end
 
   def handle({:command, :delete, %{text: text} = msg}, context) do
-    chat_id = msg.chat.id
-
-    case SessionMapper.get_thread(chat_id) do
-      nil ->
-        answer_with_menu(context, "No active thread to delete.")
-
-      thread_id ->
-        if String.contains?(text, "confirm") do
-          case Ash.get(Thread, thread_id) do
-            {:ok, thread} ->
-              Ash.destroy!(thread)
-              SessionMapper.reset_thread(chat_id)
-              answer_with_menu(context, "🗑️ Thread deleted. Send a message to start a new conversation.")
-
-            {:error, _} ->
-              SessionMapper.reset_thread(chat_id)
-              answer_with_menu(context, "Thread not found. Session cleared.")
-          end
-        else
-          answer_with_menu(context, "⚠️ Are you sure? This will delete all messages in the current thread.\n\nReply /delete confirm to proceed.")
-        end
-    end
+    handle_delete_command(text, msg.chat.id, context)
   end
 
   def handle({:command, :cancel, msg}, context) do
-    chat_id = msg.chat.id
-
-    pending_message_id = SessionMapper.get_pending_message_id(chat_id)
-
-    case pending_message_id do
-      nil ->
-        answer_with_menu(context, "No pending request to cancel.")
-
-      message_id ->
-        ensure_pending_requests_table()
-        ensure_cancelled_requests_table()
-
-        case :ets.lookup(:piano_pending_requests, {chat_id, message_id}) do
-          [{{^chat_id, ^message_id}, pid, placeholder_message_id}] ->
-            send(pid, :cancelled)
-            :ets.delete(:piano_pending_requests, {chat_id, message_id})
-            :ets.insert(:piano_telegram_cancelled, {{chat_id, message_id}})
-            SessionMapper.clear_pending_message_id(chat_id, message_id)
-            token = bot_token()
-            send_or_edit(chat_id, placeholder_message_id, "⏹️ Cancelled", token, message_id)
-            answer_with_menu(context, "Request cancelled.")
-
-          [] ->
-            answer_with_menu(context, "No pending request to cancel.")
-        end
-    end
+    handle_cancel_command(msg.chat.id, context)
   end
 
   def handle({:command, :agents, msg}, context) do
-    chat_id = msg.chat.id
-    active_agent_id = SessionMapper.get_agent(chat_id)
-
-    case Ash.read(Piano.Agents.Agent, action: :list) do
-      {:ok, []} ->
-        answer_with_menu(context, "No agents configured yet.")
-
-      {:ok, agents} ->
-        message = agents_message(agents, active_agent_id)
-        answer(context, message, parse_mode: "Markdown", reply_markup: agents_keyboard(agents, active_agent_id))
-
-      {:error, _reason} ->
-        answer_with_menu(context, "Failed to load agents.")
-    end
+    handle_agents_command(msg.chat.id, context)
   end
 
   def handle({:command, :switch, %{text: text} = msg}, context) do
-    chat_id = msg.chat.id
-
-    case parse_agent_name(text) do
-      {:ok, agent_name} ->
-        case find_agent_by_name(agent_name) do
-          {:ok, agent} ->
-            case SessionMapper.set_agent(chat_id, agent.id) do
-              :ok ->
-                Logger.info("Telegram agent switch via /switch to #{agent.name} (#{agent.id})")
-                answer_with_menu(context, "✅ Switched to #{agent.name}")
-
-              {:error, _reason} ->
-                answer_with_menu(context, "❌ Failed to switch agent. Please try again.")
-            end
-
-          {:error, :not_found} ->
-            case Ash.read(Piano.Agents.Agent, action: :list) do
-              {:ok, agents} when agents != [] ->
-                names = Enum.map_join(agents, ", ", & &1.name)
-                answer_with_menu(context, "❌ Agent not found. Available agents: #{names}")
-
-              _ ->
-                answer_with_menu(context, "❌ Agent not found. No agents configured.")
-            end
-        end
-
-      :error ->
-        case Ash.read(Piano.Agents.Agent, action: :list) do
-          {:ok, agents} when agents != [] ->
-            active_agent_id = SessionMapper.get_agent(chat_id)
-            message = agents_message(agents, active_agent_id)
-            answer(context, message, parse_mode: "Markdown", reply_markup: agents_keyboard(agents, active_agent_id))
-
-          _ ->
-            answer_with_menu(context, "Usage: /switch <agent_name>\n\nExample: /switch Assistant")
-        end
-    end
+    handle_switch_command(text, msg.chat.id, context)
   end
 
   def handle({:callback_query, callback_query}, _context) do
@@ -318,6 +145,247 @@ defmodule Piano.Telegram.Bot do
   end
 
   def handle({:text, text, msg}, _context) do
+    handle_text_message(text, msg)
+  end
+
+  def handle(_update, _context) do
+    :ok
+  end
+
+  defp handle_thread_command(text, chat_id, context) do
+    case parse_thread_id(text) do
+      {:ok, thread_id} ->
+        switch_to_thread(chat_id, thread_id, context)
+
+      :error ->
+        answer_with_menu(context, "Usage: /thread <thread_id>\n\nExample: /thread abc123-def456-...")
+    end
+  end
+
+  defp switch_to_thread(chat_id, thread_id, context) do
+    case Ash.get(Thread, thread_id) do
+      {:ok, thread} ->
+        SessionMapper.set_thread(chat_id, thread.id)
+        title = thread.title || "Untitled"
+        answer_with_menu(context, "✅ Switched to thread: #{title}")
+
+      {:error, _} ->
+        answer_with_menu(context, "❌ Thread not found. Please check the ID and try again.")
+    end
+  end
+
+  defp handle_status_command(chat_id, context) do
+    case build_status_message(chat_id) do
+      {:ok, status} -> answer_with_menu(context, status, parse_mode: "Markdown")
+      {:error, message} -> answer_with_menu(context, message)
+    end
+  end
+
+  defp build_status_message(chat_id) do
+    case SessionMapper.get_thread(chat_id) do
+      nil ->
+        {:error, "No active thread. Send a message to start one!"}
+
+      thread_id ->
+        case Ash.get(Thread, thread_id) do
+          {:ok, thread} ->
+            message_count = count_thread_messages(thread_id)
+            title = thread.title || "Untitled"
+            created = Calendar.strftime(thread.inserted_at, "%Y-%m-%d %H:%M")
+
+            status = """
+            📊 *Session Status*
+
+            🧵 Thread: #{title}
+            🆔 ID: `#{thread_id}`
+            📝 Messages: #{message_count}
+            📅 Created: #{created}
+            """
+
+            {:ok, status}
+
+          {:error, _} ->
+            {:error, "No active thread. Send a message to start one!"}
+        end
+    end
+  end
+
+  defp count_thread_messages(thread_id) do
+    query = Ash.Query.for_read(Message, :list_by_thread, %{thread_id: thread_id})
+
+    case Ash.read(query) do
+      {:ok, messages} -> length(messages)
+      _ -> 0
+    end
+  end
+
+  defp handle_history_command(chat_id, context) do
+    case build_history_message(chat_id) do
+      {:ok, history} -> answer_with_menu(context, history, parse_mode: "Markdown")
+      {:error, message} -> answer_with_menu(context, message)
+    end
+  end
+
+  defp build_history_message(chat_id) do
+    case SessionMapper.get_thread(chat_id) do
+      nil ->
+        {:error, "No active thread. Send a message to start one!"}
+
+      thread_id ->
+        query = Ash.Query.for_read(Message, :list_by_thread, %{thread_id: thread_id})
+
+        case Ash.read(query) do
+          {:ok, messages} when messages != [] ->
+            {:ok, "📜 *Recent Messages*\n\n#{format_history(messages)}"}
+
+          {:ok, []} ->
+            {:error, "No messages in this thread yet."}
+
+          {:error, _} ->
+            {:error, "Failed to load history."}
+        end
+    end
+  end
+
+  defp format_history(messages) do
+    messages
+    |> Enum.sort_by(& &1.inserted_at, DateTime)
+    |> Enum.take(-10)
+    |> Enum.map_join("\n\n", fn msg ->
+      prefix = if msg.role == :user, do: "👤 You", else: "🤖 Bot"
+      content = String.slice(msg.content, 0, 100)
+      content = if String.length(msg.content) > 100, do: content <> "...", else: content
+      "#{prefix}: #{content}"
+    end)
+  end
+
+  defp handle_delete_command(text, chat_id, context) do
+    case SessionMapper.get_thread(chat_id) do
+      nil ->
+        answer_with_menu(context, "No active thread to delete.")
+
+      thread_id ->
+        if String.contains?(text, "confirm") do
+          delete_thread(chat_id, thread_id, context)
+        else
+          answer_with_menu(context, "⚠️ Are you sure? This will delete all messages in the current thread.\n\nReply /delete confirm to proceed.")
+        end
+    end
+  end
+
+  defp delete_thread(chat_id, thread_id, context) do
+    case Ash.get(Thread, thread_id) do
+      {:ok, thread} ->
+        Ash.destroy!(thread)
+        SessionMapper.reset_thread(chat_id)
+        answer_with_menu(context, "🗑️ Thread deleted. Send a message to start a new conversation.")
+
+      {:error, _} ->
+        SessionMapper.reset_thread(chat_id)
+        answer_with_menu(context, "Thread not found. Session cleared.")
+    end
+  end
+
+  defp handle_cancel_command(chat_id, context) do
+    case SessionMapper.get_pending_message_id(chat_id) do
+      nil ->
+        answer_with_menu(context, "No pending request to cancel.")
+
+      message_id ->
+        cancel_pending_request(chat_id, message_id, context)
+    end
+  end
+
+  defp cancel_pending_request(chat_id, message_id, context) do
+    ensure_pending_requests_table()
+    ensure_cancelled_requests_table()
+
+    case :ets.lookup(:piano_pending_requests, {chat_id, message_id}) do
+      [{{^chat_id, ^message_id}, pid, placeholder_message_id}] ->
+        send(pid, :cancelled)
+        :ets.delete(:piano_pending_requests, {chat_id, message_id})
+        :ets.insert(:piano_telegram_cancelled, {{chat_id, message_id}})
+        SessionMapper.clear_pending_message_id(chat_id, message_id)
+        token = bot_token()
+        send_or_edit(chat_id, placeholder_message_id, "⏹️ Cancelled", token, message_id)
+        answer_with_menu(context, "Request cancelled.")
+
+      [] ->
+        answer_with_menu(context, "No pending request to cancel.")
+    end
+  end
+
+  defp handle_agents_command(chat_id, context) do
+    active_agent_id = SessionMapper.get_agent(chat_id)
+
+    case Ash.read(Piano.Agents.Agent, action: :list) do
+      {:ok, []} ->
+        answer_with_menu(context, "No agents configured yet.")
+
+      {:ok, agents} ->
+        message = agents_message(agents, active_agent_id)
+        answer(context, message, parse_mode: "Markdown", reply_markup: agents_keyboard(agents, active_agent_id))
+
+      {:error, _reason} ->
+        answer_with_menu(context, "Failed to load agents.")
+    end
+  end
+
+  defp handle_switch_command(text, chat_id, context) do
+    case parse_agent_name(text) do
+      {:ok, agent_name} ->
+        switch_to_named_agent(agent_name, chat_id, context)
+
+      :error ->
+        show_switch_usage(chat_id, context)
+    end
+  end
+
+  defp switch_to_named_agent(agent_name, chat_id, context) do
+    case find_agent_by_name(agent_name) do
+      {:ok, agent} ->
+        apply_agent_switch(agent, chat_id, context)
+
+      {:error, :not_found} ->
+        answer_with_menu(context, agent_not_found_message())
+    end
+  end
+
+  defp apply_agent_switch(agent, chat_id, context) do
+    case SessionMapper.set_agent(chat_id, agent.id) do
+      :ok ->
+        Logger.info("Telegram agent switch via /switch to #{agent.name} (#{agent.id})")
+        answer_with_menu(context, "✅ Switched to #{agent.name}")
+
+      {:error, _reason} ->
+        answer_with_menu(context, "❌ Failed to switch agent. Please try again.")
+    end
+  end
+
+  defp agent_not_found_message do
+    case Ash.read(Piano.Agents.Agent, action: :list) do
+      {:ok, agents} when agents != [] ->
+        names = Enum.map_join(agents, ", ", & &1.name)
+        "❌ Agent not found. Available agents: #{names}"
+
+      _ ->
+        "❌ Agent not found. No agents configured."
+    end
+  end
+
+  defp show_switch_usage(chat_id, context) do
+    case Ash.read(Piano.Agents.Agent, action: :list) do
+      {:ok, agents} when agents != [] ->
+        active_agent_id = SessionMapper.get_agent(chat_id)
+        message = agents_message(agents, active_agent_id)
+        answer(context, message, parse_mode: "Markdown", reply_markup: agents_keyboard(agents, active_agent_id))
+
+      _ ->
+        answer_with_menu(context, "Usage: /switch <agent_name>\n\nExample: /switch Assistant")
+    end
+  end
+
+  defp handle_text_message(text, msg) do
     chat_id = msg.chat.id
     user_message_id = Map.get(msg, :message_id)
     token = bot_token()
@@ -325,86 +393,102 @@ defmodule Piano.Telegram.Bot do
     ensure_cancelled_requests_table()
 
     pending_message_id = SessionMapper.get_pending_message_id(chat_id)
+    placeholder_text = placeholder_text_for(pending_message_id, user_message_id)
+    maybe_set_pending_message(chat_id, pending_message_id, user_message_id)
 
-    placeholder_text =
-      case pending_message_id do
-        nil -> "⏳ Processing..."
-        ^user_message_id -> "⏳ Processing..."
-        _other -> "⏳ Your message is queued, please wait..."
-      end
-
-    if pending_message_id == nil and not is_nil(user_message_id) do
-      SessionMapper.set_pending_message_id(chat_id, user_message_id)
-    end
-
-    placeholder_message_id =
-      case API.send_message(chat_id, placeholder_text,
-             token: token,
-             reply_to_message_id: user_message_id
-           ) do
-        {:ok, %{message_id: mid}} ->
-          ensure_last_text_table()
-          :ets.insert(:piano_telegram_last_text, {{chat_id, mid}, placeholder_text})
-          mid
-
-        {:error, reason} ->
-          Logger.warning("Telegram send_message failed for chat #{chat_id}: #{inspect(reason)}")
-          nil
-
-        other ->
-          Logger.warning("Telegram send_message unexpected response for chat #{chat_id}: #{inspect(other)}")
-          nil
-      end
+    placeholder_message_id = send_placeholder_message(chat_id, placeholder_text, token, user_message_id)
 
     case SessionMapper.get_or_create_thread(chat_id) do
       {:ok, thread_id} ->
-        agent_id = SessionMapper.get_agent(chat_id)
-        metadata = %{
-          chat_id: chat_id,
-          thread_id: thread_id,
-          agent_id: agent_id,
-          telegram_message_id: user_message_id
-        }
-
-        case ChatGateway.handle_incoming(text, :telegram, metadata) do
-          {:ok, message} ->
-            spawn(fn ->
-              ensure_pending_requests_table()
-              ensure_cancelled_requests_table()
-              :ets.insert(:piano_pending_requests, {{chat_id, user_message_id}, self(), placeholder_message_id})
-              Events.subscribe(message.thread_id)
-
-              result =
-                wait_for_response(
-                  chat_id,
-                  message.thread_id,
-                  message.id,
-                  token,
-                  placeholder_message_id,
-                  user_message_id
-                )
-
-              :ets.delete(:piano_pending_requests, {chat_id, user_message_id})
-              result
-            end)
-
-          {:error, reason} ->
-            Logger.error("Failed to handle Telegram message: #{inspect(reason)}")
-            send_or_edit(chat_id, placeholder_message_id, "Sorry, something went wrong. Please try again.", token, user_message_id)
-            SessionMapper.clear_pending_message_id(chat_id, user_message_id)
-        end
+        handle_text_with_thread(
+          chat_id,
+          text,
+          thread_id,
+          user_message_id,
+          placeholder_message_id,
+          token
+        )
 
       {:error, reason} ->
-        Logger.error("Failed to get/create thread for chat #{chat_id}: #{inspect(reason)}")
-        send_or_edit(chat_id, placeholder_message_id, "Sorry, something went wrong. Please try again.", token, user_message_id)
-        SessionMapper.clear_pending_message_id(chat_id, user_message_id)
+        handle_thread_error(chat_id, reason, placeholder_message_id, token, user_message_id)
     end
 
     :ok
   end
 
-  def handle(_update, _context) do
-    :ok
+  defp placeholder_text_for(nil, _user_message_id), do: "⏳ Processing..."
+  defp placeholder_text_for(user_message_id, user_message_id), do: "⏳ Processing..."
+  defp placeholder_text_for(_pending_message_id, _user_message_id), do: "⏳ Your message is queued, please wait..."
+
+  defp maybe_set_pending_message(_chat_id, _pending_message_id, nil), do: :ok
+  defp maybe_set_pending_message(_chat_id, pending_message_id, _user_message_id) when not is_nil(pending_message_id), do: :ok
+
+  defp maybe_set_pending_message(chat_id, nil, user_message_id) do
+    SessionMapper.set_pending_message_id(chat_id, user_message_id)
+  end
+
+  defp send_placeholder_message(chat_id, placeholder_text, token, user_message_id) do
+    case API.send_message(chat_id, placeholder_text,
+           token: token,
+           reply_to_message_id: user_message_id
+         ) do
+      {:ok, %{message_id: mid}} ->
+        ensure_last_text_table()
+        :ets.insert(:piano_telegram_last_text, {{chat_id, mid}, placeholder_text})
+        mid
+
+      {:error, reason} ->
+        Logger.warning("Telegram send_message failed for chat #{chat_id}: #{inspect(reason)}")
+        nil
+
+      other ->
+        Logger.warning("Telegram send_message unexpected response for chat #{chat_id}: #{inspect(other)}")
+        nil
+    end
+  end
+
+  defp handle_text_with_thread(chat_id, text, thread_id, user_message_id, placeholder_message_id, token) do
+    agent_id = SessionMapper.get_agent(chat_id)
+    metadata = %{
+      chat_id: chat_id,
+      thread_id: thread_id,
+      agent_id: agent_id,
+      telegram_message_id: user_message_id
+    }
+
+    case ChatGateway.handle_incoming(text, :telegram, metadata) do
+      {:ok, message} ->
+        spawn(fn ->
+          ensure_pending_requests_table()
+          ensure_cancelled_requests_table()
+          :ets.insert(:piano_pending_requests, {{chat_id, user_message_id}, self(), placeholder_message_id})
+          Events.subscribe(message.thread_id)
+
+          result =
+            wait_for_response(
+              chat_id,
+              message.thread_id,
+              message.id,
+              token,
+              placeholder_message_id,
+              user_message_id
+            )
+
+          :ets.delete(:piano_pending_requests, {chat_id, user_message_id})
+          result
+        end)
+
+      {:error, reason} ->
+        Logger.error("Failed to handle Telegram message: #{inspect(reason)}")
+        send_or_edit(chat_id, placeholder_message_id, "Sorry, something went wrong. Please try again.", token, user_message_id)
+        SessionMapper.clear_pending_message_id(chat_id, user_message_id)
+    end
+  end
+
+  defp handle_thread_error(chat_id, reason, placeholder_message_id, token, user_message_id) do
+    Logger.error("Failed to get/create thread for chat #{chat_id}: #{inspect(reason)}")
+    send_or_edit(chat_id, placeholder_message_id, "Sorry, something went wrong. Please try again.", token, user_message_id)
+    SessionMapper.clear_pending_message_id(chat_id, user_message_id)
   end
 
   defp parse_thread_id(text) do
@@ -431,210 +515,150 @@ defmodule Piano.Telegram.Bot do
   defp parse_switch_callback(_), do: :error
 
   defp find_agent_by_name(name) do
-    case Ash.read(Piano.Agents.Agent, action: :list) do
-      {:ok, agents} ->
-        name_downcase = String.downcase(name)
+    with {:ok, agents} <- Ash.read(Piano.Agents.Agent, action: :list),
+         {:ok, agent} <- find_agent_by_name_in_list(agents, name) do
+      {:ok, agent}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
 
-        case Enum.find(agents, fn agent ->
-               String.downcase(agent.name) == name_downcase
-             end) do
-          nil -> {:error, :not_found}
-          agent -> {:ok, agent}
-        end
+  defp find_agent_by_name_in_list(agents, name) do
+    name_downcase = String.downcase(name)
 
-      {:error, _} ->
-        {:error, :not_found}
+    case Enum.find(agents, fn agent ->
+           String.downcase(agent.name) == name_downcase
+         end) do
+      nil -> {:error, :not_found}
+      agent -> {:ok, agent}
     end
   end
 
   defp wait_for_response(chat_id, thread_id, message_id, token, placeholder_message_id, user_message_id) do
-    wait_for_response(chat_id, thread_id, message_id, token, placeholder_message_id, user_message_id, false, 0, [])
+    state = %{
+      chat_id: chat_id,
+      thread_id: thread_id,
+      message_id: message_id,
+      token: token,
+      placeholder_message_id: placeholder_message_id,
+      user_message_id: user_message_id,
+      started?: false,
+      elapsed: 0,
+      tool_calls: []
+    }
+
+    wait_for_response(state)
   end
 
-  defp wait_for_response(
-         chat_id,
-         thread_id,
-         message_id,
-         token,
-         placeholder_message_id,
-         user_message_id,
-         started?,
-         elapsed,
-         tool_calls
-       ) do
+  defp wait_for_response(%{started?: started?, elapsed: elapsed} = state) do
     remaining = if started?, do: 120_000 - elapsed, else: @still_working_timeout
     timeout = min(@still_working_timeout, remaining)
 
     if started? and remaining <= 0 do
-      Logger.warning("Response timeout for thread #{thread_id}")
-      send_or_edit(chat_id, placeholder_message_id, "Sorry, the request timed out. Please try again.", token, user_message_id)
-      Events.unsubscribe(thread_id)
-      :timeout
+      timeout_response(state)
     else
       receive do
-        :cancelled ->
-          Events.unsubscribe(thread_id)
-          :cancelled
-
-        {:processing_started, ^message_id} ->
-          send_or_edit(chat_id, placeholder_message_id, "⏳ Processing...", token, user_message_id,
-            allow_send: false
-          )
-          API.send_chat_action(chat_id, "typing", token: token)
-          wait_for_response(
-            chat_id,
-            thread_id,
-            message_id,
-            token,
-            placeholder_message_id,
-            user_message_id,
-            true,
-            0,
-            tool_calls
-          )
-
-        {:processing_started, _other_message_id} ->
-          wait_for_response(
-            chat_id,
-            thread_id,
-            message_id,
-            token,
-            placeholder_message_id,
-            user_message_id,
-            started?,
-            elapsed,
-            tool_calls
-          )
-
-        {:tool_call, ^message_id, tool_call} ->
-          updated_tool_calls = tool_calls ++ [tool_call]
-          send_or_edit(chat_id, placeholder_message_id, tool_calls_placeholder(updated_tool_calls), token, user_message_id,
-            allow_send: false
-          )
-          wait_for_response(
-            chat_id,
-            thread_id,
-            message_id,
-            token,
-            placeholder_message_id,
-            user_message_id,
-            started?,
-            elapsed,
-            updated_tool_calls
-          )
-
-        {:tool_call, _other_message_id, _tool_call} ->
-          wait_for_response(
-            chat_id,
-            thread_id,
-            message_id,
-            token,
-            placeholder_message_id,
-            user_message_id,
-            started?,
-            elapsed,
-            tool_calls
-          )
-
-        {:tool_call, tool_call} ->
-          updated_tool_calls = tool_calls ++ [tool_call]
-          send_or_edit(chat_id, placeholder_message_id, tool_calls_placeholder(updated_tool_calls), token, user_message_id,
-            allow_send: false
-          )
-          wait_for_response(
-            chat_id,
-            thread_id,
-            message_id,
-            token,
-            placeholder_message_id,
-            user_message_id,
-            started?,
-            elapsed,
-            updated_tool_calls
-          )
-
-        {:response_ready, ^message_id, agent_message} ->
-          send_long_response(chat_id, placeholder_message_id, agent_message.content, token, tool_calls, user_message_id)
-          Events.unsubscribe(thread_id)
-          :ok
-
-        {:response_ready, _other_message_id, _agent_message} ->
-          wait_for_response(
-            chat_id,
-            thread_id,
-            message_id,
-            token,
-            placeholder_message_id,
-            user_message_id,
-            started?,
-            elapsed,
-            tool_calls
-          )
-
-        {:response_ready, agent_message} ->
-          send_long_response(chat_id, placeholder_message_id, agent_message.content, token, tool_calls, user_message_id)
-          Events.unsubscribe(thread_id)
-          :ok
-
-        {:processing_error, ^message_id, reason} ->
-          Logger.error("Processing error for thread #{thread_id}: #{inspect(reason)}")
-          error_message = format_error_message(reason)
-          send_or_edit(chat_id, placeholder_message_id, error_message, token, user_message_id)
-          Events.unsubscribe(thread_id)
-          :error
-
-        {:processing_error, _other_message_id, _reason} ->
-          wait_for_response(
-            chat_id,
-            thread_id,
-            message_id,
-            token,
-            placeholder_message_id,
-            user_message_id,
-            started?,
-            elapsed,
-            tool_calls
-          )
+        message -> handle_wait_message(message, state)
       after
-        timeout ->
-          if not started? do
-            wait_for_response(
-              chat_id,
-              thread_id,
-              message_id,
-              token,
-              placeholder_message_id,
-              user_message_id,
-              started?,
-              elapsed,
-              tool_calls
-            )
-          else
-            if elapsed + timeout < 120_000 do
-              send_or_edit(chat_id, placeholder_message_id, "⏳ Still working...", token, user_message_id,
-                allow_send: false
-              )
-              API.send_chat_action(chat_id, "typing", token: token)
-              wait_for_response(
-                chat_id,
-                thread_id,
-                message_id,
-                token,
-                placeholder_message_id,
-                user_message_id,
-                started?,
-                elapsed + timeout,
-                tool_calls
-              )
-            else
-              Logger.warning("Response timeout for thread #{thread_id}")
-              send_or_edit(chat_id, placeholder_message_id, "Sorry, the request timed out. Please try again.", token, user_message_id)
-              Events.unsubscribe(thread_id)
-              :timeout
-            end
-          end
+        timeout -> handle_wait_timeout(state, timeout)
       end
     end
+  end
+
+  defp handle_wait_message(:cancelled, state) do
+    Events.unsubscribe(state.thread_id)
+    :cancelled
+  end
+
+  defp handle_wait_message({:processing_started, message_id}, %{message_id: message_id} = state) do
+    send_or_edit(state.chat_id, state.placeholder_message_id, "⏳ Processing...", state.token, state.user_message_id,
+      allow_send: false
+    )
+    API.send_chat_action(state.chat_id, "typing", token: state.token)
+    wait_for_response(%{state | started?: true, elapsed: 0})
+  end
+
+  defp handle_wait_message({:processing_started, _other_message_id}, state) do
+    wait_for_response(state)
+  end
+
+  defp handle_wait_message({:tool_call, message_id, tool_call}, %{message_id: message_id} = state) do
+    updated_tool_calls = state.tool_calls ++ [tool_call]
+
+    send_or_edit(state.chat_id, state.placeholder_message_id, tool_calls_placeholder(updated_tool_calls), state.token, state.user_message_id,
+      allow_send: false
+    )
+
+    wait_for_response(%{state | tool_calls: updated_tool_calls})
+  end
+
+  defp handle_wait_message({:tool_call, _other_message_id, _tool_call}, state) do
+    wait_for_response(state)
+  end
+
+  defp handle_wait_message({:tool_call, tool_call}, state) do
+    updated_tool_calls = state.tool_calls ++ [tool_call]
+
+    send_or_edit(state.chat_id, state.placeholder_message_id, tool_calls_placeholder(updated_tool_calls), state.token, state.user_message_id,
+      allow_send: false
+    )
+
+    wait_for_response(%{state | tool_calls: updated_tool_calls})
+  end
+
+  defp handle_wait_message({:response_ready, message_id, agent_message}, %{message_id: message_id} = state) do
+    send_long_response(state.chat_id, state.placeholder_message_id, agent_message.content, state.token, state.tool_calls, state.user_message_id)
+    Events.unsubscribe(state.thread_id)
+    :ok
+  end
+
+  defp handle_wait_message({:response_ready, _other_message_id, _agent_message}, state) do
+    wait_for_response(state)
+  end
+
+  defp handle_wait_message({:response_ready, agent_message}, state) do
+    send_long_response(state.chat_id, state.placeholder_message_id, agent_message.content, state.token, state.tool_calls, state.user_message_id)
+    Events.unsubscribe(state.thread_id)
+    :ok
+  end
+
+  defp handle_wait_message({:processing_error, message_id, reason}, %{message_id: message_id} = state) do
+    Logger.error("Processing error for thread #{state.thread_id}: #{inspect(reason)}")
+    error_message = format_error_message(reason)
+    send_or_edit(state.chat_id, state.placeholder_message_id, error_message, state.token, state.user_message_id)
+    Events.unsubscribe(state.thread_id)
+    :error
+  end
+
+  defp handle_wait_message({:processing_error, _other_message_id, _reason}, state) do
+    wait_for_response(state)
+  end
+
+  defp handle_wait_message(_message, state) do
+    wait_for_response(state)
+  end
+
+  defp handle_wait_timeout(%{started?: false} = state, _timeout) do
+    wait_for_response(state)
+  end
+
+  defp handle_wait_timeout(%{elapsed: elapsed} = state, timeout) do
+    if elapsed + timeout < 120_000 do
+      send_or_edit(state.chat_id, state.placeholder_message_id, "⏳ Still working...", state.token, state.user_message_id,
+        allow_send: false
+      )
+      API.send_chat_action(state.chat_id, "typing", token: state.token)
+      wait_for_response(%{state | elapsed: elapsed + timeout})
+    else
+      timeout_response(state)
+    end
+  end
+
+  defp timeout_response(state) do
+    Logger.warning("Response timeout for thread #{state.thread_id}")
+    send_or_edit(state.chat_id, state.placeholder_message_id, "Sorry, the request timed out. Please try again.", state.token, state.user_message_id)
+    Events.unsubscribe(state.thread_id)
+    :timeout
   end
 
   defp send_or_edit(chat_id, message_id, text, token, user_message_id, opts \\ [])
@@ -661,35 +685,32 @@ defmodule Piano.Telegram.Bot do
     if same_last_text?(chat_id, message_id, text) do
       :ok
     else
-      edit_opts =
-        [token: token]
-        |> Keyword.merge(opts)
-
+      edit_opts = [token: token] |> Keyword.merge(opts)
       send_opts =
         [token: token, reply_markup: main_keyboard(), reply_to_message_id: user_message_id]
         |> Keyword.merge(opts)
 
-      Logger.debug("Telegram edit_message_text chat=#{chat_id} message_id=#{message_id}")
-      case API.edit_message_text(chat_id, message_id, text, edit_opts) do
-        {:ok, _} ->
-          :ets.insert(:piano_telegram_last_text, {{chat_id, message_id}, text})
+      do_edit_or_fallback(chat_id, message_id, text, edit_opts, send_opts, allow_send, user_message_id)
+    end
+  end
+
+  defp do_edit_or_fallback(chat_id, message_id, text, edit_opts, send_opts, allow_send, user_message_id) do
+    Logger.debug("Telegram edit_message_text chat=#{chat_id} message_id=#{message_id}")
+
+    case API.edit_message_text(chat_id, message_id, text, edit_opts) do
+      {:ok, _} ->
+        :ets.insert(:piano_telegram_last_text, {{chat_id, message_id}, text})
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Telegram edit_message_text failed for chat #{chat_id}: #{inspect(reason)}")
+
+        if allow_send and should_fallback_send?(reason) do
+          Logger.debug("Telegram send_message fallback chat=#{chat_id} reply_to=#{user_message_id}")
+          API.send_message(chat_id, text, send_opts)
+        else
           :ok
-
-        {:error, reason} ->
-          if not_modified_error?(reason) do
-            :ets.insert(:piano_telegram_last_text, {{chat_id, message_id}, text})
-            :ok
-          else
-            Logger.warning("Telegram edit_message_text failed for chat #{chat_id}: #{inspect(reason)}")
-
-            if allow_send and should_fallback_send?(reason) do
-              Logger.debug("Telegram send_message fallback chat=#{chat_id} reply_to=#{user_message_id}")
-              API.send_message(chat_id, text, send_opts)
-            else
-              :ok
-            end
-          end
-      end
+        end
     end
   end
 
@@ -878,8 +899,7 @@ defmodule Piano.Telegram.Bot do
       |> Enum.filter(fn {key, value} ->
         key in ["command", "path", "url", "query"] and value != nil
       end)
-      |> Enum.map(fn {key, value} -> "#{key}=#{format_tool_call_value(value)}" end)
-      |> Enum.join(", ")
+      |> Enum.map_join(", ", fn {key, value} -> "#{key}=#{format_tool_call_value(value)}" end)
 
     if rendered == "" do
       "- #{name}()"
@@ -927,30 +947,35 @@ defmodule Piano.Telegram.Bot do
 
   defp format_tool_calls_blocks(tool_calls) do
     lines = tool_calls |> Enum.map(&format_tool_call_line/1) |> Enum.map(&html_escape/1)
-    header = "<blockquote expandable>\n<b>🔧 Tool Calls</b>\n<pre>"
-    footer = "</pre>\n</blockquote>"
-    max_body_size = @max_message_length - byte_size(header) - byte_size(footer)
+    {header, footer, max_body_size} = tool_call_block_parts()
 
     if max_body_size <= 0 do
       [header <> footer]
     else
-      {blocks, current} =
-        Enum.reduce(lines, {[], ""}, fn line, {blocks, current} ->
-          candidate = if current == "", do: line, else: current <> "\n" <> line
-
-          if byte_size(candidate) <= max_body_size do
-            {blocks, candidate}
-          else
-            {blocks ++ [current], line}
-          end
-        end)
-
-      blocks = if current == "", do: blocks, else: blocks ++ [current]
-
-      Enum.map(blocks, fn body ->
-        header <> body <> footer
-      end)
+      build_tool_call_blocks(lines, header, footer, max_body_size)
     end
+  end
+
+  defp tool_call_block_parts do
+    header = "<spoiler>Tool calls:\n"
+    footer = "</spoiler>"
+    {header, footer, @max_message_length - byte_size(header) - byte_size(footer)}
+  end
+
+  defp build_tool_call_blocks(lines, header, footer, max_body_size) do
+    {blocks, current} =
+      Enum.reduce(lines, {[], ""}, fn line, {blocks, current} ->
+        candidate = if current == "", do: line, else: current <> "\n" <> line
+
+        if byte_size(candidate) <= max_body_size do
+          {blocks, candidate}
+        else
+          {blocks ++ [current], line}
+        end
+      end)
+
+    blocks = if current == "", do: blocks, else: blocks ++ [current]
+    Enum.map(blocks, fn body -> header <> body <> footer end)
   end
 
   defp answer_with_menu(context, text, opts \\ []) do
@@ -964,17 +989,7 @@ defmodule Piano.Telegram.Bot do
     |> String.replace(">", "&gt;")
   end
 
-  defp should_fallback_send?(_reason), do: false
-
-  defp not_modified_error?(%{message: message}) when is_binary(message) do
-    String.contains?(message, "message is not modified")
-  end
-
-  defp not_modified_error?(%{description: description}) when is_binary(description) do
-    String.contains?(description, "message is not modified")
-  end
-
-  defp not_modified_error?(_reason), do: false
+  defp should_fallback_send?(_reason), do: true
 
   defp handle_message_deleted(chat_id, message_id) do
     ensure_pending_requests_table()

@@ -165,65 +165,81 @@ defmodule PianoWeb.ChatLive do
   end
 
   def handle_event("rename_thread_save", %{"id" => thread_id}, socket) do
-    thread = Enum.find(socket.assigns.threads, fn t -> t.id == thread_id end)
-
-    if thread do
-      title =
-        socket.assigns.rename_value
-        |> String.trim()
-        |> case do
-          "" -> nil
-          value -> value
-        end
-
-      case thread |> Ash.Changeset.for_update(:rename, %{title: title}) |> Ash.update() do
-        {:ok, _updated_thread} ->
-          {:noreply,
-           socket
-           |> assign(:threads, load_threads())
-           |> assign(:renaming_thread_id, nil)
-           |> assign(:rename_value, "")}
-
-        {:error, _changeset} ->
-          {:noreply, put_flash(socket, :error, "Failed to rename thread")}
-      end
-    else
-      {:noreply, put_flash(socket, :error, "Thread not found")}
-    end
+    {:noreply, rename_thread(socket, thread_id)}
   end
 
   def handle_event("delete_thread", %{"id" => thread_id}, socket) do
-    thread = Enum.find(socket.assigns.threads, fn t -> t.id == thread_id end)
+    {:noreply, delete_thread(socket, thread_id)}
+  end
 
-    if thread do
-      case Ash.destroy(thread) do
-        :ok ->
-          socket =
-            if socket.assigns.thread_id == thread_id do
-              Events.unsubscribe(thread_id)
+  defp rename_thread(socket, thread_id) do
+    case Enum.find(socket.assigns.threads, fn t -> t.id == thread_id end) do
+      nil ->
+        put_flash(socket, :error, "Thread not found")
 
-              socket
-              |> assign(:thread_id, nil)
-              |> assign(:messages, [])
-              |> assign(:tool_calls_buffer, [])
-              |> assign(:tool_calls_by_message_id, %{})
-              |> assign(:thinking, false)
-              |> push_patch(to: ~p"/chat")
-            else
-              socket
-            end
+      thread ->
+        update_thread_title(socket, thread)
+    end
+  end
 
-          {:noreply,
-           socket
-           |> assign(:threads, load_threads())
-           |> assign(:renaming_thread_id, nil)
-           |> assign(:rename_value, "")}
-
-        {:error, _error} ->
-          {:noreply, put_flash(socket, :error, "Failed to delete thread")}
+  defp update_thread_title(socket, thread) do
+    title =
+      socket.assigns.rename_value
+      |> String.trim()
+      |> case do
+        "" -> nil
+        value -> value
       end
+
+    case thread |> Ash.Changeset.for_update(:rename, %{title: title}) |> Ash.update() do
+      {:ok, _updated_thread} ->
+        socket
+        |> assign(:threads, load_threads())
+        |> assign(:renaming_thread_id, nil)
+        |> assign(:rename_value, "")
+
+      {:error, _changeset} ->
+        put_flash(socket, :error, "Failed to rename thread")
+    end
+  end
+
+  defp delete_thread(socket, thread_id) do
+    case Enum.find(socket.assigns.threads, fn t -> t.id == thread_id end) do
+      nil ->
+        put_flash(socket, :error, "Thread not found")
+
+      thread ->
+        destroy_thread(socket, thread, thread_id)
+    end
+  end
+
+  defp destroy_thread(socket, thread, thread_id) do
+    case Ash.destroy(thread) do
+      :ok ->
+        socket
+        |> maybe_reset_deleted_thread(thread_id)
+        |> assign(:threads, load_threads())
+        |> assign(:renaming_thread_id, nil)
+        |> assign(:rename_value, "")
+
+      {:error, _error} ->
+        put_flash(socket, :error, "Failed to delete thread")
+    end
+  end
+
+  defp maybe_reset_deleted_thread(socket, thread_id) do
+    if socket.assigns.thread_id == thread_id do
+      Events.unsubscribe(thread_id)
+
+      socket
+      |> assign(:thread_id, nil)
+      |> assign(:messages, [])
+      |> assign(:tool_calls_buffer, [])
+      |> assign(:tool_calls_by_message_id, %{})
+      |> assign(:thinking, false)
+      |> push_patch(to: ~p"/chat")
     else
-      {:noreply, put_flash(socket, :error, "Thread not found")}
+      socket
     end
   end
 
@@ -545,8 +561,7 @@ defmodule PianoWeb.ChatLive do
       |> Enum.filter(fn {key, value} ->
         key in ["command", "path", "url", "query", "file", "name"] and value != nil
       end)
-      |> Enum.map(fn {key, value} -> "#{key}=#{format_tool_call_value(value)}" end)
-      |> Enum.join(", ")
+      |> Enum.map_join(", ", fn {key, value} -> "#{key}=#{format_tool_call_value(value)}" end)
 
     if rendered == "" do
       "#{name}()"

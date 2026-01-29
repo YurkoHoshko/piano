@@ -24,7 +24,7 @@ defmodule Piano.Pipeline.CodexEventConsumer do
         end
 
         with {:ok, interaction} <- fetch_interaction(params),
-             {:ok, interaction} <- Ash.load(interaction, [:surface, :thread]) do
+             {:ok, interaction} <- Ash.load(interaction, [:thread]) do
           dispatch(interaction, method, params)
           :ok
         else
@@ -45,32 +45,43 @@ defmodule Piano.Pipeline.CodexEventConsumer do
         Ash.get(Interaction, interaction_id)
 
       is_binary(turn_id) and is_binary(thread_id) ->
-        with {:ok, thread} <- fetch_thread(thread_id),
-             {:ok, interaction} <- fetch_interaction_by_turn(thread.id, turn_id) do
-          {:ok, interaction}
-        else
-          {:error, :not_found} ->
-            with {:ok, thread} <- fetch_thread(thread_id) do
-              fetch_latest_interaction(thread.id)
-            end
-
-          {:error, _} = error ->
-            error
-        end
+        fetch_interaction_by_turn_and_thread(turn_id, thread_id)
 
       is_binary(turn_id) ->
         fetch_interaction_by_turn(nil, turn_id)
 
       is_binary(thread_id) ->
-        with {:ok, thread} <- fetch_thread(thread_id),
-             {:ok, interaction} <- fetch_latest_interaction(thread.id) do
-          {:ok, interaction}
-        end
+        fetch_latest_for_thread(thread_id)
 
       true ->
         {:error, :missing_turn_id}
     end
   end
+
+  defp fetch_latest_for_thread(codex_thread_id) do
+    with {:ok, thread} <- fetch_thread(codex_thread_id) do
+      fetch_latest_interaction(thread.id)
+    end
+  end
+
+  defp fetch_interaction_by_turn_and_thread(turn_id, codex_thread_id) do
+    case fetch_thread(codex_thread_id) do
+      {:ok, thread} ->
+        fetch_interaction_by_turn(thread.id, turn_id)
+        |> maybe_fallback_latest(thread.id)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp maybe_fallback_latest({:ok, interaction}, _thread_id), do: {:ok, interaction}
+
+  defp maybe_fallback_latest({:error, :not_found}, thread_id) do
+    fetch_latest_interaction(thread_id)
+  end
+
+  defp maybe_fallback_latest({:error, _} = error, _thread_id), do: error
 
   defp fetch_thread(codex_thread_id) do
     query =
@@ -162,20 +173,31 @@ defmodule Piano.Pipeline.CodexEventConsumer do
   defp dispatch(_interaction, _method, _params), do: :ok
 
   defp notify_surface(interaction, event, params) do
-    surface = interaction.surface
+    case build_surface(interaction.reply_to) do
+      {:ok, surface} ->
+        case event do
+          :turn_started -> Piano.Surface.on_turn_started(surface, interaction, params)
+          :turn_completed -> Piano.Surface.on_turn_completed(surface, interaction, params)
+          :item_started -> Piano.Surface.on_item_started(surface, interaction, params)
+          :item_completed -> Piano.Surface.on_item_completed(surface, interaction, params)
+          :agent_message_delta -> Piano.Surface.on_agent_message_delta(surface, interaction, params)
+        end
 
-    case event do
-      :turn_started -> Piano.Surface.on_turn_started(surface, interaction, params)
-      :turn_completed -> Piano.Surface.on_turn_completed(surface, interaction, params)
-      :item_started -> Piano.Surface.on_item_started(surface, interaction, params)
-      :item_completed -> Piano.Surface.on_item_completed(surface, interaction, params)
-      :agent_message_delta -> Piano.Surface.on_agent_message_delta(surface, interaction, params)
+      :error ->
+        Logger.warning("Unknown surface type for reply_to: #{interaction.reply_to}")
+        {:ok, :noop}
     end
   rescue
     e ->
       Logger.error("Surface event error: #{inspect(e)}")
       :ok
   end
+
+  defp build_surface("telegram:" <> _ = reply_to) do
+    Piano.Telegram.Surface.parse(reply_to)
+  end
+
+  defp build_surface(_), do: :error
 
   defp handle_item_started(interaction, params) do
     item = params["item"] || params
@@ -198,37 +220,46 @@ defmodule Piano.Pipeline.CodexEventConsumer do
 
     case find_item(interaction.id, item_id) do
       {:ok, record} ->
-        case Ash.update(record, %{payload: params}, action: :complete) do
-          {:ok, _} -> :ok
-          {:error, _} ->
-            _ =
-              Ash.create(InteractionItem, %{
-                codex_item_id: item_id,
-                type: type,
-                payload: params,
-                interaction_id: interaction.id
-              })
-        end
+        handle_completed_item(record, interaction, item_id, type, params)
 
-        maybe_update_response_from_item(interaction, params)
+      {:error, _} ->
+        handle_missing_completed_item(interaction, item_id, type, params)
+    end
+  end
+
+  defp handle_completed_item(record, interaction, item_id, type, params) do
+    case Ash.update(record, %{payload: params}, action: :complete) do
+      {:ok, _} ->
         :ok
 
       {:error, _} ->
-        case Ash.create(InteractionItem, %{
-               codex_item_id: item_id,
-               type: type,
-               payload: params,
-               interaction_id: interaction.id
-             }) do
-          {:ok, record} ->
-            _ = Ash.update(record, %{payload: params}, action: :complete)
-            maybe_update_response_from_item(interaction, params)
-            :ok
-
-          _ ->
-            :ok
-        end
+        _ = create_interaction_item(interaction, item_id, type, params)
+        :ok
     end
+
+    maybe_update_response_from_item(interaction, params)
+    :ok
+  end
+
+  defp handle_missing_completed_item(interaction, item_id, type, params) do
+    case create_interaction_item(interaction, item_id, type, params) do
+      {:ok, record} ->
+        _ = Ash.update(record, %{payload: params}, action: :complete)
+        maybe_update_response_from_item(interaction, params)
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp create_interaction_item(interaction, item_id, type, params) do
+    Ash.create(InteractionItem, %{
+      codex_item_id: item_id,
+      type: type,
+      payload: params,
+      interaction_id: interaction.id
+    })
   end
 
   defp handle_message_delta(_params), do: :ok
@@ -341,15 +372,17 @@ defmodule Piano.Pipeline.CodexEventConsumer do
   end
 
   defp extract_response_from_items(interaction_id) do
-    with {:ok, items} <- list_items_by_interaction(interaction_id) do
-      items
-      |> Enum.filter(&(&1.type == :agent_message))
-      |> Enum.sort_by(& &1.inserted_at)
-      |> Enum.map(&extract_item_text/1)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.join("\n")
-    else
-      _ -> nil
+    case list_items_by_interaction(interaction_id) do
+      {:ok, items} ->
+        items
+        |> Enum.filter(&(&1.type == :agent_message))
+        |> Enum.sort_by(& &1.inserted_at)
+        |> Enum.map(&extract_item_text/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join("\n")
+
+      _ ->
+        nil
     end
   end
 
@@ -359,34 +392,45 @@ defmodule Piano.Pipeline.CodexEventConsumer do
   end
 
   defp maybe_update_response_from_item(%Interaction{} = interaction, params) do
-    item_type =
-      params
-      |> Map.get("item", %{})
-      |> Map.get("type", params["type"])
-      |> map_item_type()
-
-    if item_type == :agent_message do
-      text =
-        get_in(params, ["item", "text"]) ||
-          extract_text_from_content(get_in(params, ["item", "content"]))
-
-      if is_binary(text) and text != "" do
-        response =
-          case interaction.response do
-            nil -> text
-            "" -> text
-            existing -> existing <> "\n" <> text
-          end
-
-        action = if interaction.status == :complete, do: :complete, else: :set_response
-        _ = Ash.update(interaction, %{response: response}, action: action)
-      end
+    case item_type_from_params(params) do
+      :agent_message -> update_response_from_item(interaction, params)
+      _ -> :ok
     end
-
-    :ok
   end
 
   defp maybe_update_response_from_item(_interaction, _params), do: :ok
+
+  defp item_type_from_params(params) do
+    params
+    |> Map.get("item", %{})
+    |> Map.get("type", params["type"])
+    |> map_item_type()
+  end
+
+  defp update_response_from_item(interaction, params) do
+    case extract_item_text_from_params(params) do
+      text when is_binary(text) and text != "" ->
+        response = append_response_text(interaction.response, text)
+        action = response_action(interaction.status)
+        _ = Ash.update(interaction, %{response: response}, action: action)
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp extract_item_text_from_params(params) do
+    get_in(params, ["item", "text"]) ||
+      extract_text_from_content(get_in(params, ["item", "content"]))
+  end
+
+  defp append_response_text(nil, text), do: text
+  defp append_response_text("", text), do: text
+  defp append_response_text(existing, text), do: existing <> "\n" <> text
+
+  defp response_action(:complete), do: :complete
+  defp response_action(_), do: :set_response
 
   defp extract_text_from_content(content) when is_list(content) do
     content

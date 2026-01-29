@@ -4,7 +4,7 @@ defmodule Piano.CodexTest do
 
   alias Piano.Codex
   alias Piano.Codex.Client
-  alias Piano.Core.{Surface, Thread, Interaction, InteractionItem}
+  alias Piano.Core.{Thread, Interaction, InteractionItem}
   alias Piano.TestHarness.CodexReplayHelpers
   alias Piano.TestHarness.CodexReplay
 
@@ -42,22 +42,21 @@ defmodule Piano.CodexTest do
 
   describe "start_turn prerequisites" do
     setup do
-      {:ok, surface} = Ash.create(Surface, %{app: :telegram, identifier: "test_chat"})
-      {:ok, thread} = Ash.create(Thread, %{surface_id: surface.id})
+      reply_to = "telegram:123456:789"
+      {:ok, thread} = Ash.create(Thread, %{reply_to: "telegram:123456"})
       {:ok, interaction} = Ash.create(Interaction, %{
         original_message: "Hello, world!",
-        surface_id: surface.id,
+        reply_to: reply_to,
         thread_id: thread.id
       })
 
-      {:ok, surface: surface, thread: thread, interaction: interaction}
+      {:ok, thread: thread, interaction: interaction}
     end
 
     test "loads interaction with relationships", %{interaction: interaction} do
-      {:ok, loaded} = Ash.load(interaction, [:thread, :surface, thread: [:agent]])
+      {:ok, loaded} = Ash.load(interaction, [:thread, thread: [:agent]])
 
       assert loaded.thread != nil
-      assert loaded.surface != nil
       assert loaded.thread.agent == nil
     end
 
@@ -120,11 +119,11 @@ defmodule Piano.CodexTest do
 
       :ok = CodexReplay.clear_last_request()
 
-      {:ok, surface} = Ash.create(Surface, %{app: :telegram, identifier: "integration_test"})
-      {:ok, thread} = Ash.create(Thread, %{surface_id: surface.id})
+      reply_to = "telegram:123456:789"
+      {:ok, thread} = Ash.create(Thread, %{reply_to: "telegram:123456"})
       {:ok, interaction} = Ash.create(Interaction, %{
         original_message: "What is 2+2?",
-        surface_id: surface.id,
+        reply_to: reply_to,
         thread_id: thread.id
       })
 

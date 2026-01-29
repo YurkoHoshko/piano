@@ -171,60 +171,18 @@ defmodule Piano.Agents.ToolRegistry do
   """
   @spec execute_run_skill(map()) :: {:ok, String.t()} | {:error, String.t()}
   def execute_run_skill(args) when is_map(args) do
-    skill_name = fetch_param(args, :name)
-    exec_path = fetch_param(args, :exec)
     exec_args = normalize_args_list(fetch_param(args, :args))
     return_direct = fetch_param(args, :return_direct) == true
 
-    cond do
-      is_nil(skill_name) ->
-        {:error, "Missing required parameter: name"}
-
-      is_nil(exec_path) ->
-        {:error, "Missing required parameter: exec"}
-
-      Path.type(exec_path) == :absolute ->
-        {:error, "exec must be a relative path under the skill root"}
-
-      true ->
-        case find_skill(skill_name) do
-          nil ->
-            {:error, "Skill not found: #{skill_name}"}
-
-          skill ->
-            root = Path.dirname(skill.path)
-            expanded_root = Path.expand(root)
-            expanded_exec = Path.expand(Path.join(expanded_root, exec_path))
-
-            if within_root?(expanded_exec, expanded_root) do
-              if File.exists?(expanded_exec) do
-                try do
-                  {output, exit_code} =
-                    System.cmd(expanded_exec, exec_args, stderr_to_stdout: true)
-
-                  {output, truncated?} = truncate_output(output)
-
-                  if return_direct do
-                    {:ok, %{output: output, return_direct: true, exit_code: exit_code, truncated: truncated?}}
-                  else
-                    result = """
-                    Exit code: #{exit_code}
-                    Output:
-                    #{output}
-                    """
-
-                    {:ok, append_truncation_notice(result, truncated?)}
-                  end
-                rescue
-                  e -> {:error, "Executable failed: #{Exception.message(e)}"}
-                end
-              else
-                {:error, "Executable not found: #{expanded_exec}"}
-              end
-            else
-              {:error, "exec must be within the skill root: #{expanded_root}"}
-            end
-        end
+    with {:ok, skill_name} <- require_param(args, :name, "Missing required parameter: name"),
+         {:ok, exec_path} <- require_param(args, :exec, "Missing required parameter: exec"),
+         :ok <- validate_exec_path(exec_path),
+         {:ok, skill} <- load_skill(skill_name),
+         {:ok, expanded_exec, expanded_root} <- expand_exec_path(skill, exec_path),
+         :ok <- validate_exec_location(expanded_exec, expanded_root) do
+      run_skill_exec(expanded_exec, exec_args, return_direct)
+    else
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -257,29 +215,16 @@ defmodule Piano.Agents.ToolRegistry do
   """
   @spec execute_edit_file(map()) :: {:ok, String.t()} | {:error, String.t()}
   def execute_edit_file(args) when is_map(args) do
-    path = fetch_param(args, :path)
-    old_content = fetch_param(args, :old_content)
-    new_content = fetch_param(args, :new_content)
-
-    if is_nil(path) or is_nil(old_content) or is_nil(new_content) do
-      {:error, "Missing required parameters: path, old_content, new_content"}
+    with {:ok, path} <- require_param(args, :path, "Missing required parameters: path, old_content, new_content"),
+         {:ok, old_content} <- require_param(args, :old_content, "Missing required parameters: path, old_content, new_content"),
+         {:ok, new_content} <- require_param(args, :new_content, "Missing required parameters: path, old_content, new_content"),
+         {:ok, content} <- read_file(path),
+         true <- String.contains?(content, old_content) do
+      new_file_content = String.replace(content, old_content, new_content, global: false)
+      write_file(path, new_file_content, "File edited successfully: #{path}")
     else
-      case File.read(path) do
-        {:ok, content} ->
-          if String.contains?(content, old_content) do
-            new_file_content = String.replace(content, old_content, new_content, global: false)
-
-            case File.write(path, new_file_content) do
-              :ok -> {:ok, "File edited successfully: #{path}"}
-              {:error, reason} -> {:error, "Failed to write file: #{inspect(reason)}"}
-            end
-          else
-            {:error, "old_content not found in file"}
-          end
-
-        {:error, reason} ->
-          {:error, "Failed to read file: #{inspect(reason)}"}
-      end
+      false -> {:error, "old_content not found in file"}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -329,34 +274,12 @@ defmodule Piano.Agents.ToolRegistry do
     content = fetch_param(args, :content)
     agent = Map.get(context, :agent)
 
-    cond do
-      is_nil(agent) ->
-        {:error, "Agent context not available"}
-
-      is_nil(action) ->
-        {:error, "Missing required parameter: action"}
-
-      action not in ["read", "append", "replace"] ->
-        {:error, "Invalid action. Must be one of: read, append, replace"}
-
-      action == "read" ->
-        soul = agent.soul || "(empty)"
-        {:ok, "Current soul:\n#{soul}"}
-
-      action in ["append", "replace"] and (is_nil(content) or content == "") ->
-        {:error, "Missing required parameter: content (required for #{action} action)"}
-
-      action == "append" ->
-        case Ash.update(agent, %{soul: content}, action: :append_soul) do
-          {:ok, updated} -> {:ok, "Soul updated. New soul:\n#{updated.soul}"}
-          {:error, error} -> {:error, "Failed to update soul: #{inspect(error)}"}
-        end
-
-      action == "replace" ->
-        case Ash.update(agent, %{soul: content}, action: :rewrite_soul) do
-          {:ok, updated} -> {:ok, "Soul replaced. New soul:\n#{updated.soul}"}
-          {:error, error} -> {:error, "Failed to replace soul: #{inspect(error)}"}
-        end
+    with {:ok, agent} <- require_agent(agent),
+         {:ok, action} <- require_action(action),
+         {:ok, content} <- require_action_content(action, content) do
+      perform_soul_action(agent, action, content)
+    else
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -404,6 +327,119 @@ defmodule Piano.Agents.ToolRegistry do
     Map.get(args, key) || Map.get(args, String.to_existing_atom(key))
   rescue
     ArgumentError -> Map.get(args, key)
+  end
+
+  defp require_param(args, key, message) do
+    case fetch_param(args, key) do
+      nil -> {:error, message}
+      value -> {:ok, value}
+    end
+  end
+
+  defp validate_exec_path(exec_path) do
+    if Path.type(exec_path) == :absolute do
+      {:error, "exec must be a relative path under the skill root"}
+    else
+      :ok
+    end
+  end
+
+  defp load_skill(skill_name) do
+    case find_skill(skill_name) do
+      nil -> {:error, "Skill not found: #{skill_name}"}
+      skill -> {:ok, skill}
+    end
+  end
+
+  defp expand_exec_path(skill, exec_path) do
+    root = Path.dirname(skill.path)
+    expanded_root = Path.expand(root)
+    expanded_exec = Path.expand(Path.join(expanded_root, exec_path))
+    {:ok, expanded_exec, expanded_root}
+  end
+
+  defp validate_exec_location(expanded_exec, expanded_root) do
+    cond do
+      not within_root?(expanded_exec, expanded_root) ->
+        {:error, "exec must be within the skill root: #{expanded_root}"}
+
+      not File.exists?(expanded_exec) ->
+        {:error, "Executable not found: #{expanded_exec}"}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp run_skill_exec(expanded_exec, exec_args, return_direct) do
+    try do
+      {output, exit_code} = System.cmd(expanded_exec, exec_args, stderr_to_stdout: true)
+      {output, truncated?} = truncate_output(output)
+
+      if return_direct do
+        {:ok, %{output: output, return_direct: true, exit_code: exit_code, truncated: truncated?}}
+      else
+        result = """
+        Exit code: #{exit_code}
+        Output:
+        #{output}
+        """
+
+        {:ok, append_truncation_notice(result, truncated?)}
+      end
+    rescue
+      e -> {:error, "Executable failed: #{Exception.message(e)}"}
+    end
+  end
+
+  defp read_file(path) do
+    case File.read(path) do
+      {:ok, content} -> {:ok, content}
+      {:error, reason} -> {:error, "Failed to read file: #{inspect(reason)}"}
+    end
+  end
+
+  defp write_file(path, content, success_message) do
+    case File.write(path, content) do
+      :ok -> {:ok, success_message}
+      {:error, reason} -> {:error, "Failed to write file: #{inspect(reason)}"}
+    end
+  end
+
+  defp update_soul(agent, content, action, success_prefix, error_prefix) do
+    case Ash.update(agent, %{soul: content}, action: action) do
+      {:ok, updated} -> {:ok, success_prefix <> updated.soul}
+      {:error, error} -> {:error, "#{error_prefix}: #{inspect(error)}"}
+    end
+  end
+
+  defp require_agent(nil), do: {:error, "Agent context not available"}
+  defp require_agent(agent), do: {:ok, agent}
+
+  defp require_action(nil), do: {:error, "Missing required parameter: action"}
+  defp require_action(action) when action in ["read", "append", "replace"], do: {:ok, action}
+  defp require_action(_), do: {:error, "Invalid action. Must be one of: read, append, replace"}
+
+  defp require_action_content("read", _content), do: {:ok, nil}
+
+  defp require_action_content(action, content)
+       when action in ["append", "replace"] and (is_nil(content) or content == "") do
+    {:error, "Missing required parameter: content (required for #{action} action)"}
+  end
+
+  defp require_action_content(_action, content), do: {:ok, content}
+
+  defp perform_soul_action(agent, "read", _content) do
+    soul = agent.soul || "(empty)"
+    {:ok, "Current soul:\n#{soul}"}
+  end
+
+  defp perform_soul_action(agent, "append", content) do
+    update_soul(agent, content, :append_soul, "Soul updated. New soul:\n", "Failed to update soul")
+  end
+
+  defp perform_soul_action(agent, "replace", content) do
+    update_soul(agent, content, :rewrite_soul, "Soul replaced. New soul:\n", "Failed to replace soul")
   end
 
   defp truncate_output(output) when is_binary(output) do

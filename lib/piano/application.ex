@@ -102,7 +102,7 @@ defmodule Piano.Application do
     skill_count = length(skills)
 
     if skill_count > 0 do
-      skill_names = skills |> Enum.map(& &1.name) |> Enum.join(", ")
+      skill_names = skills |> Enum.map_join(", ", & &1.name)
 
       IO.puts("""
 

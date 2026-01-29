@@ -4,33 +4,8 @@ defmodule Piano.TestHarness.OpenAIReplay do
   def build(:chat_completions, response) when is_map(response) do
     model = response["model"] || "gpt-oss-120b"
     created = System.system_time(:second)
-    usage = %{
-      prompt_tokens: response["prompt_tokens"] || 10,
-      completion_tokens: response["completion_tokens"] || 20,
-      total_tokens: response["total_tokens"] || 30
-    }
-
-    message =
-      case response do
-        %{"tool_calls" => tool_calls} when is_list(tool_calls) and tool_calls != [] ->
-          %{
-            role: "assistant",
-            content: response["content"],
-            tool_calls: Enum.map(tool_calls, &build_tool_call/1)
-          }
-
-        %{"content" => _} ->
-          %{
-            role: "assistant",
-            content: response["content"]
-          }
-
-        _ ->
-          %{
-            role: "assistant",
-            content: response["content"] || "Mock response"
-          }
-      end
+    usage = build_usage(response)
+    message = build_chat_message(response)
 
     %{
       id: "chatcmpl-#{random_id()}",
@@ -97,6 +72,36 @@ defmodule Piano.TestHarness.OpenAIReplay do
       metadata: response["metadata"],
       user: response["user"],
       completed_at: response["completed_at"] || created_at
+    }
+  end
+
+  defp build_usage(response) do
+    %{
+      prompt_tokens: response["prompt_tokens"] || 10,
+      completion_tokens: response["completion_tokens"] || 20,
+      total_tokens: response["total_tokens"] || 30
+    }
+  end
+
+  defp build_chat_message(%{"tool_calls" => tool_calls} = response) when is_list(tool_calls) and tool_calls != [] do
+    %{
+      role: "assistant",
+      content: response["content"],
+      tool_calls: Enum.map(tool_calls, &build_tool_call/1)
+    }
+  end
+
+  defp build_chat_message(%{"content" => content}) do
+    %{
+      role: "assistant",
+      content: content
+    }
+  end
+
+  defp build_chat_message(response) do
+    %{
+      role: "assistant",
+      content: response["content"] || "Mock response"
     }
   end
 
@@ -201,6 +206,10 @@ defmodule Piano.TestHarness.OpenAIReplay do
       %{
         id: "gpt-oss-120b",
         name: "gpt-oss-120b",
+        slug: "gpt-oss-120b",
+        display_name: "gpt-oss-120b",
+        supported_reasoning_levels: [],
+        shell_type: "bash",
         created: created,
         object: "model",
         owned_by: "llama-swap"
@@ -208,13 +217,17 @@ defmodule Piano.TestHarness.OpenAIReplay do
       %{
         id: "gpt-oss-20b",
         name: "gpt-oss-20b",
+        slug: "gpt-oss-20b",
+        display_name: "gpt-oss-20b",
+        supported_reasoning_levels: [],
+        shell_type: "bash",
         created: created,
         object: "model",
         owned_by: "llama-swap"
       }
     ]
 
-    %{object: "list", data: models}
+    %{object: "list", data: models, models: models}
   end
 
   defp maybe_reasoning_chunk(_id, _created, _model, nil, _usage), do: nil
@@ -258,7 +271,7 @@ defmodule Piano.TestHarness.OpenAIReplay do
       "predicted_ms" => 50.0,
       "predicted_per_token_ms" => 25.0,
       "predicted_per_second" => 40.0,
-      "n_ctx" => 32768,
+      "n_ctx" => 32_768,
       "n_past" => max(prompt_tokens, 1)
     }
   end
@@ -272,8 +285,7 @@ defmodule Piano.TestHarness.OpenAIReplay do
     |> Enum.filter(&(&1["type"] == "message"))
     |> Enum.flat_map(&(&1["content"] || []))
     |> Enum.filter(&(&1["type"] in ["output_text", "text"]))
-    |> Enum.map(& &1["text"])
-    |> Enum.join("")
+    |> Enum.map_join("", & &1["text"])
   end
 
   defp extract_output_text(_), do: nil

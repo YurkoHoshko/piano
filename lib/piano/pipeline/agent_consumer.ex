@@ -33,56 +33,86 @@ defmodule Piano.Pipeline.AgentConsumer do
     chat_id = Map.get(event, :chat_id)
     telegram_message_id = Map.get(event, :telegram_message_id)
 
-    if chat_id && telegram_message_id && telegram_cancelled?(chat_id, telegram_message_id) do
+    case maybe_skip_cancelled(chat_id, telegram_message_id) do
+      :skip ->
+        :ok
+
+      :ok ->
+        maybe_set_pending(chat_id, telegram_message_id)
+
+        Process.put(:piano_message_id, message_id)
+        Logger.info("Processing message #{message_id} for thread #{thread_id}")
+        Events.broadcast(thread_id, {:processing_started, message_id})
+
+        result = run_pipeline(thread_id, message_id, agent_id, chat_id, telegram_message_id)
+
+        Process.delete(:piano_message_id)
+        maybe_clear_pending(chat_id, telegram_message_id)
+        result
+    end
+  end
+
+  defp maybe_skip_cancelled(nil, _telegram_message_id), do: :ok
+  defp maybe_skip_cancelled(_chat_id, nil), do: :ok
+
+  defp maybe_skip_cancelled(chat_id, telegram_message_id) do
+    if telegram_cancelled?(chat_id, telegram_message_id) do
       clear_telegram_cancelled(chat_id, telegram_message_id)
       Logger.info("Skipping cancelled Telegram message #{telegram_message_id} for chat #{chat_id}")
+      :skip
     else
-      if chat_id && telegram_message_id do
-        SessionMapper.set_pending_message_id(chat_id, telegram_message_id)
-      end
+      :ok
+    end
+  end
 
-      Process.put(:piano_message_id, message_id)
+  defp maybe_set_pending(nil, _telegram_message_id), do: :ok
+  defp maybe_set_pending(_chat_id, nil), do: :ok
 
-      Logger.info("Processing message #{message_id} for thread #{thread_id}")
-      Events.broadcast(thread_id, {:processing_started, message_id})
+  defp maybe_set_pending(chat_id, telegram_message_id) do
+    SessionMapper.set_pending_message_id(chat_id, telegram_message_id)
+  end
 
-      result =
-        with {:ok, agent} <- load_agent(agent_id),
-             {:ok, messages} <- load_thread_messages(thread_id),
-             {:ok, response} <- call_llm(agent, messages, thread_id),
-             {:ok, agent_message} <- create_agent_message(thread_id, agent_id, response) do
-          Logger.info("Processed message #{message_id} with agent #{agent.name} (#{agent.id})")
+  defp maybe_clear_pending(nil, _telegram_message_id), do: :ok
+  defp maybe_clear_pending(_chat_id, nil), do: :ok
 
-          if chat_id && telegram_message_id && telegram_cancelled?(chat_id, telegram_message_id) do
-            Logger.info("Skipping response for cancelled Telegram message #{telegram_message_id}")
-            clear_telegram_cancelled(chat_id, telegram_message_id)
-            :cancelled
-          else
-            Events.broadcast(thread_id, {:response_ready, message_id, agent_message})
-            Logger.info("Successfully processed message #{message_id}")
-            :ok
-          end
-        else
-          {:error, reason} ->
-            Logger.error("Failed to process message #{message_id}: #{inspect(reason)}")
+  defp maybe_clear_pending(chat_id, telegram_message_id) do
+    SessionMapper.clear_pending_message_id(chat_id, telegram_message_id)
+  end
 
-            if chat_id && telegram_message_id && telegram_cancelled?(chat_id, telegram_message_id) do
-              Logger.info("Skipping error broadcast for cancelled Telegram message #{telegram_message_id}")
-              clear_telegram_cancelled(chat_id, telegram_message_id)
-            else
-              Events.broadcast(thread_id, {:processing_error, message_id, reason})
-            end
+  defp run_pipeline(thread_id, message_id, agent_id, chat_id, telegram_message_id) do
+    with {:ok, agent} <- load_agent(agent_id),
+         {:ok, messages} <- load_thread_messages(thread_id),
+         {:ok, response} <- call_llm(agent, messages, thread_id),
+         {:ok, agent_message} <- create_agent_message(thread_id, agent_id, response) do
+      Logger.info("Processed message #{message_id} with agent #{agent.name} (#{agent.id})")
+      handle_success(thread_id, message_id, agent_message, chat_id, telegram_message_id)
+    else
+      {:error, reason} ->
+        Logger.error("Failed to process message #{message_id}: #{inspect(reason)}")
+        handle_failure(thread_id, message_id, reason, chat_id, telegram_message_id)
+    end
+  end
 
-            :error
-        end
+  defp handle_success(thread_id, message_id, agent_message, chat_id, telegram_message_id) do
+    if telegram_cancelled?(chat_id, telegram_message_id) do
+      Logger.info("Skipping response for cancelled Telegram message #{telegram_message_id}")
+      clear_telegram_cancelled(chat_id, telegram_message_id)
+      :cancelled
+    else
+      Events.broadcast(thread_id, {:response_ready, message_id, agent_message})
+      Logger.info("Successfully processed message #{message_id}")
+      :ok
+    end
+  end
 
-      Process.delete(:piano_message_id)
-
-      if chat_id && telegram_message_id do
-        SessionMapper.clear_pending_message_id(chat_id, telegram_message_id)
-      end
-
-      result
+  defp handle_failure(thread_id, message_id, reason, chat_id, telegram_message_id) do
+    if telegram_cancelled?(chat_id, telegram_message_id) do
+      Logger.info("Skipping error broadcast for cancelled Telegram message #{telegram_message_id}")
+      clear_telegram_cancelled(chat_id, telegram_message_id)
+      :error
+    else
+      Events.broadcast(thread_id, {:processing_error, message_id, reason})
+      :error
     end
   end
 
@@ -236,42 +266,51 @@ defmodule Piano.Pipeline.AgentConsumer do
 
     Enum.reduce(tool_calls, {context, nil}, fn call, {ctx, direct_response} ->
       {name, id, args} = normalize_tool_call(call)
-
       Logger.debug("Executing tool #{name} with args: #{inspect(args)}")
-      if message_id do
-        Events.broadcast(thread_id, {:tool_call, message_id, %{name: name, arguments: args}})
-      else
-        Events.broadcast(thread_id, {:tool_call, %{name: name, arguments: args}})
-      end
 
-      result =
-        case Enum.find(tools, fn t -> t.name == name end) do
-          nil ->
-            {:error, "Unknown tool: #{name}"}
+      broadcast_tool_call(thread_id, message_id, name, args)
 
-          tool ->
-            if ToolRegistry.requires_context?(name) do
-              ToolRegistry.execute(name, args, %{agent: agent})
-            else
-              ReqLLM.Tool.execute(tool, args)
-            end
-        end
-
-      case result do
-        {:ok, %{output: output, return_direct: true}} ->
-          Logger.debug("Tool #{name} returned #{byte_size(to_string(output))} bytes (return_direct)")
-          new_ctx = Context.append(ctx, Context.tool_result_message(name, id, output))
-          {new_ctx, direct_response || output}
-
-        {:ok, output} ->
-          Logger.debug("Tool #{name} returned #{byte_size(to_string(output))} bytes")
-          {Context.append(ctx, Context.tool_result_message(name, id, output)), direct_response}
-
-        {:error, error} ->
-          Logger.warning("Tool #{name} failed: #{inspect(error)}")
-          {Context.append(ctx, Context.tool_result_message(name, id, %{error: inspect(error)})), direct_response}
-      end
+      result = execute_tool(name, args, tools, agent)
+      apply_tool_result(ctx, direct_response, name, id, result)
     end)
+  end
+
+  defp broadcast_tool_call(thread_id, nil, name, args) do
+    Events.broadcast(thread_id, {:tool_call, %{name: name, arguments: args}})
+  end
+
+  defp broadcast_tool_call(thread_id, message_id, name, args) do
+    Events.broadcast(thread_id, {:tool_call, message_id, %{name: name, arguments: args}})
+  end
+
+  defp execute_tool(name, args, tools, agent) do
+    case Enum.find(tools, fn t -> t.name == name end) do
+      nil ->
+        {:error, "Unknown tool: #{name}"}
+
+      tool ->
+        if ToolRegistry.requires_context?(name) do
+          ToolRegistry.execute(name, args, %{agent: agent})
+        else
+          ReqLLM.Tool.execute(tool, args)
+        end
+    end
+  end
+
+  defp apply_tool_result(ctx, direct_response, name, id, {:ok, %{output: output, return_direct: true}}) do
+    Logger.debug("Tool #{name} returned #{byte_size(to_string(output))} bytes (return_direct)")
+    new_ctx = Context.append(ctx, Context.tool_result_message(name, id, output))
+    {new_ctx, direct_response || output}
+  end
+
+  defp apply_tool_result(ctx, direct_response, name, id, {:ok, output}) do
+    Logger.debug("Tool #{name} returned #{byte_size(to_string(output))} bytes")
+    {Context.append(ctx, Context.tool_result_message(name, id, output)), direct_response}
+  end
+
+  defp apply_tool_result(ctx, direct_response, name, id, {:error, error}) do
+    Logger.warning("Tool #{name} failed: #{inspect(error)}")
+    {Context.append(ctx, Context.tool_result_message(name, id, %{error: inspect(error)})), direct_response}
   end
 
   defp normalize_tool_call(%ToolCall{} = call) do
@@ -359,6 +398,9 @@ defmodule Piano.Pipeline.AgentConsumer do
 
   defp normalize_args(args) when is_map(args), do: args
   defp normalize_args(args), do: Map.new(args)
+
+  defp telegram_cancelled?(nil, _telegram_message_id), do: false
+  defp telegram_cancelled?(_chat_id, nil), do: false
 
   defp telegram_cancelled?(chat_id, telegram_message_id) do
     case :ets.whereis(:piano_telegram_cancelled) do

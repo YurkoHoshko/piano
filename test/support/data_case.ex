@@ -1,4 +1,7 @@
 defmodule Piano.DataCase do
+  @moduledoc """
+  Test helpers for database-backed tests.
+  """
   use ExUnit.CaseTemplate
 
   using do

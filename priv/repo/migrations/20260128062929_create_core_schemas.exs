@@ -36,9 +36,9 @@ defmodule Piano.Repo.Migrations.CreateCoreSchemas do
     create table(:threads_v2, primary_key: false) do
       add :id, :uuid, null: false, primary_key: true
       add :codex_thread_id, :text
+      add :reply_to, :text, null: false
       add :status, :text, null: false, default: "active"
       add :agent_id, references(:agents_v2, column: :id, name: "threads_v2_agent_id_fkey", type: :uuid)
-      add :surface_id, references(:surfaces, column: :id, name: "threads_v2_surface_id_fkey", type: :uuid), null: false
       add :inserted_at, :utc_datetime_usec, null: false
       add :updated_at, :utc_datetime_usec, null: false
     end
@@ -47,10 +47,10 @@ defmodule Piano.Repo.Migrations.CreateCoreSchemas do
       add :id, :uuid, null: false, primary_key: true
       add :codex_turn_id, :text
       add :original_message, :text, null: false
+      add :reply_to, :text, null: false
       add :status, :text, null: false, default: "pending"
       add :response, :text
       add :thread_id, references(:threads_v2, column: :id, name: "interactions_thread_id_fkey", type: :uuid)
-      add :surface_id, references(:surfaces, column: :id, name: "interactions_surface_id_fkey", type: :uuid), null: false
       add :inserted_at, :utc_datetime_usec, null: false
       add :updated_at, :utc_datetime_usec, null: false
     end

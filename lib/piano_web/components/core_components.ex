@@ -1,4 +1,7 @@
 defmodule PianoWeb.CoreComponents do
+  @moduledoc """
+  Shared Phoenix component helpers and UI primitives.
+  """
   use Phoenix.Component
 
   alias Phoenix.LiveView.JS

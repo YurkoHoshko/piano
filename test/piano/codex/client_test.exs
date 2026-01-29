@@ -71,7 +71,7 @@ defmodule Piano.Codex.ClientTest do
       {:ok, message} = Jason.decode(json)
 
       assert message["id"] == 1
-      assert message["error"]["code"] == -32600
+      assert message["error"]["code"] == -32_600
     end
 
     test "parses notification" do

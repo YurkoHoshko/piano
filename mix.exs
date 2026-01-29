@@ -10,6 +10,7 @@ defmodule Piano.MixProject do
       start_permanent: Mix.env() == :prod,
       consolidate_protocols: Mix.env() != :dev,
       aliases: aliases(),
+      test_coverage: [tool: ExCoveralls],
       deps: deps(),
       listeners: [Phoenix.CodeReloader],
       releases: [
@@ -18,6 +19,17 @@ defmodule Piano.MixProject do
           applications: [runtime_tools: :permanent],
           steps: [:assemble, :tar]
         ]
+      ]
+    ]
+  end
+
+  def cli do
+    [
+      preferred_envs: [
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.html": :test,
+        "coveralls.post": :test
       ]
     ]
   end
@@ -66,6 +78,8 @@ defmodule Piano.MixProject do
       # Testing
       {:mox, "~> 1.0", only: :test},
       {:lazy_html, ">= 0.1.0", only: :test},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:excoveralls, "~> 0.18", only: :test},
 
       # Telegram
       {:ex_gram, "~> 0.57"},

@@ -41,44 +41,52 @@ defmodule Piano.TestHarness.CodexReplayHelpers do
   end
 
   defp start_supervised_endpoint(endpoint) do
-    case Process.whereis(Piano.Supervisor) do
-      nil ->
-        case endpoint.start_link() do
-          {:ok, _pid} -> :ok
-          {:error, {:already_started, _}} -> :ok
-          {:error, reason} -> raise "Failed to start #{inspect(endpoint)}: #{inspect(reason)}"
-        end
-
-      _pid ->
-        case Supervisor.start_child(Piano.Supervisor, endpoint.child_spec([])) do
-          {:ok, _pid} -> :ok
-          {:error, {:already_started, _}} -> :ok
-          {:error, reason} -> raise "Failed to start #{inspect(endpoint)}: #{inspect(reason)}"
-        end
+    if supervisor_running?() do
+      start_child_endpoint(endpoint)
+    else
+      start_endpoint(endpoint)
     end
   end
 
   defp restart_supervised_endpoint(endpoint) do
-    case Process.whereis(Piano.Supervisor) do
-      nil ->
-        case endpoint.start_link() do
-          {:ok, _pid} -> :ok
-          {:error, {:already_started, _}} -> :ok
-          {:error, reason} -> raise "Failed to start #{inspect(endpoint)}: #{inspect(reason)}"
-        end
+    if supervisor_running?() do
+      restart_child_endpoint(endpoint)
+    else
+      start_endpoint(endpoint)
+    end
+  end
 
-      _pid ->
-        case Supervisor.terminate_child(Piano.Supervisor, endpoint) do
-          :ok -> :ok
-          {:error, :not_found} -> :ok
-          {:error, reason} -> raise "Failed to stop #{inspect(endpoint)}: #{inspect(reason)}"
-        end
+  defp supervisor_running? do
+    Process.whereis(Piano.Supervisor) != nil
+  end
 
-        case Supervisor.restart_child(Piano.Supervisor, endpoint) do
-          {:ok, _pid} -> :ok
-          {:error, {:already_started, _}} -> :ok
-          {:error, reason} -> raise "Failed to restart #{inspect(endpoint)}: #{inspect(reason)}"
-        end
+  defp start_endpoint(endpoint) do
+    case endpoint.start_link() do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _}} -> :ok
+      {:error, reason} -> raise "Failed to start #{inspect(endpoint)}: #{inspect(reason)}"
+    end
+  end
+
+  defp start_child_endpoint(endpoint) do
+    case Supervisor.start_child(Piano.Supervisor, endpoint.child_spec([])) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _}} -> :ok
+      {:error, reason} -> raise "Failed to start #{inspect(endpoint)}: #{inspect(reason)}"
+    end
+  end
+
+  defp restart_child_endpoint(endpoint) do
+    case Supervisor.terminate_child(Piano.Supervisor, endpoint) do
+      :ok -> :ok
+      {:error, :not_found} -> :ok
+      {:error, reason} -> raise "Failed to stop #{inspect(endpoint)}: #{inspect(reason)}"
+    end
+
+    case Supervisor.restart_child(Piano.Supervisor, endpoint) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _}} -> :ok
+      {:error, reason} -> raise "Failed to restart #{inspect(endpoint)}: #{inspect(reason)}"
     end
   end
 end

@@ -1,4 +1,7 @@
 defmodule Piano.Chat.Message do
+  @moduledoc """
+  Chat message resource for persisted conversations.
+  """
   use Ash.Resource,
     domain: Piano.Chat,
     data_layer: AshSqlite.DataLayer

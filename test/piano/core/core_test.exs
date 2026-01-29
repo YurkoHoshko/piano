@@ -4,7 +4,6 @@ defmodule Piano.CoreTest do
   alias Piano.Core.{Surface, Agent, Thread, Interaction, InteractionItem}
 
   setup do
-    # Clean up between tests
     Piano.Repo.query!("DELETE FROM interaction_items")
     Piano.Repo.query!("DELETE FROM interactions")
     Piano.Repo.query!("DELETE FROM threads_v2")
@@ -68,22 +67,20 @@ defmodule Piano.CoreTest do
   end
 
   describe "Thread" do
-    test "creates a thread with surface and agent" do
-      {:ok, surface} = Ash.create(Surface, %{app: :telegram, identifier: "chat1"})
+    test "creates a thread with reply_to and agent" do
       {:ok, agent} = Ash.create(Agent, %{name: "Agent", model: "o3", workspace_path: "/tmp"})
 
-      {:ok, thread} = Ash.create(Thread, %{surface_id: surface.id, agent_id: agent.id})
+      {:ok, thread} = Ash.create(Thread, %{reply_to: "telegram:123456", agent_id: agent.id})
 
       assert thread.status == :active
-      assert thread.surface_id == surface.id
+      assert thread.reply_to == "telegram:123456"
       assert thread.agent_id == agent.id
     end
 
-    test "find_recent_for_surface finds active thread updated recently" do
-      {:ok, surface} = Ash.create(Surface, %{app: :telegram, identifier: "recent_test"})
-      {:ok, thread} = Ash.create(Thread, %{surface_id: surface.id})
+    test "find_recent_for_reply_to finds active thread updated recently" do
+      {:ok, thread} = Ash.create(Thread, %{reply_to: "telegram:123456:789"})
 
-      query = Ash.Query.for_read(Thread, :find_recent_for_surface, %{surface_id: surface.id})
+      query = Ash.Query.for_read(Thread, :find_recent_for_reply_to, %{reply_to: "telegram:123456:999"})
       {:ok, results} = Ash.read(query)
 
       assert length(results) == 1
@@ -91,8 +88,7 @@ defmodule Piano.CoreTest do
     end
 
     test "archive changes status to archived" do
-      {:ok, surface} = Ash.create(Surface, %{app: :telegram, identifier: "archive_test"})
-      {:ok, thread} = Ash.create(Thread, %{surface_id: surface.id})
+      {:ok, thread} = Ash.create(Thread, %{reply_to: "telegram:123456"})
 
       {:ok, archived} = Ash.update(thread, %{}, action: :archive)
 
@@ -101,23 +97,20 @@ defmodule Piano.CoreTest do
   end
 
   describe "Interaction" do
-    test "creates an interaction with surface" do
-      {:ok, surface} = Ash.create(Surface, %{app: :telegram, identifier: "int_test"})
-
+    test "creates an interaction with reply_to" do
       {:ok, interaction} =
         Ash.create(Interaction, %{
           original_message: "Hello!",
-          surface_id: surface.id
+          reply_to: "telegram:123456:789"
         })
 
       assert interaction.original_message == "Hello!"
       assert interaction.status == :pending
-      assert interaction.surface_id == surface.id
+      assert interaction.reply_to == "telegram:123456:789"
     end
 
     test "transitions through status lifecycle" do
-      {:ok, surface} = Ash.create(Surface, %{app: :telegram, identifier: "lifecycle"})
-      {:ok, interaction} = Ash.create(Interaction, %{original_message: "Test", surface_id: surface.id})
+      {:ok, interaction} = Ash.create(Interaction, %{original_message: "Test", reply_to: "telegram:1:2"})
 
       {:ok, started} = Ash.update(interaction, %{codex_turn_id: "turn_123"}, action: :start)
       assert started.status == :in_progress
@@ -129,9 +122,8 @@ defmodule Piano.CoreTest do
     end
 
     test "can assign thread after creation" do
-      {:ok, surface} = Ash.create(Surface, %{app: :telegram, identifier: "assign"})
-      {:ok, thread} = Ash.create(Thread, %{surface_id: surface.id})
-      {:ok, interaction} = Ash.create(Interaction, %{original_message: "Hi", surface_id: surface.id})
+      {:ok, thread} = Ash.create(Thread, %{reply_to: "telegram:1"})
+      {:ok, interaction} = Ash.create(Interaction, %{original_message: "Hi", reply_to: "telegram:1:99"})
 
       {:ok, assigned} = Ash.update(interaction, %{thread_id: thread.id}, action: :assign_thread)
 
@@ -141,8 +133,7 @@ defmodule Piano.CoreTest do
 
   describe "InteractionItem" do
     test "creates an item for an interaction" do
-      {:ok, surface} = Ash.create(Surface, %{app: :telegram, identifier: "item_test"})
-      {:ok, interaction} = Ash.create(Interaction, %{original_message: "Hi", surface_id: surface.id})
+      {:ok, interaction} = Ash.create(Interaction, %{original_message: "Hi", reply_to: "telegram:1:2"})
 
       {:ok, item} =
         Ash.create(InteractionItem, %{
@@ -158,8 +149,7 @@ defmodule Piano.CoreTest do
     end
 
     test "complete updates status" do
-      {:ok, surface} = Ash.create(Surface, %{app: :telegram, identifier: "complete_test"})
-      {:ok, interaction} = Ash.create(Interaction, %{original_message: "Hi", surface_id: surface.id})
+      {:ok, interaction} = Ash.create(Interaction, %{original_message: "Hi", reply_to: "telegram:1:2"})
       {:ok, item} = Ash.create(InteractionItem, %{codex_item_id: "x", type: :agent_message, interaction_id: interaction.id})
 
       {:ok, completed} = Ash.update(item, %{}, action: :complete)
@@ -168,8 +158,7 @@ defmodule Piano.CoreTest do
     end
 
     test "list_by_interaction returns items for interaction" do
-      {:ok, surface} = Ash.create(Surface, %{app: :telegram, identifier: "list_test"})
-      {:ok, interaction} = Ash.create(Interaction, %{original_message: "Hi", surface_id: surface.id})
+      {:ok, interaction} = Ash.create(Interaction, %{original_message: "Hi", reply_to: "telegram:1:2"})
       {:ok, _} = Ash.create(InteractionItem, %{codex_item_id: "1", type: :user_message, interaction_id: interaction.id})
       {:ok, _} = Ash.create(InteractionItem, %{codex_item_id: "2", type: :agent_message, interaction_id: interaction.id})
 

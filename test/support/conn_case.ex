@@ -1,4 +1,7 @@
 defmodule PianoWeb.ConnCase do
+  @moduledoc """
+  Test helpers for endpoint and connection tests.
+  """
   use ExUnit.CaseTemplate
 
   using do

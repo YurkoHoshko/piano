@@ -151,14 +151,8 @@ defmodule Piano.Telegram.SessionMapper do
   def clear_pending_message_id(chat_id, expected_message_id \\ nil) do
     case get_session(chat_id) do
       {:ok, %Session{} = session} ->
-        if expected_message_id == nil or session.pending_message_id == expected_message_id do
-          session
-          |> Ash.Changeset.for_update(:update, %{pending_message_id: nil})
-          |> Ash.update()
-          |> case do
-            {:ok, _} -> :ok
-            {:error, _} = error -> error
-          end
+        if pending_message_matches?(session, expected_message_id) do
+          clear_session_pending_message(session)
         else
           :ok
         end
@@ -168,6 +162,20 @@ defmodule Piano.Telegram.SessionMapper do
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  defp pending_message_matches?(session, expected_message_id) do
+    expected_message_id == nil or session.pending_message_id == expected_message_id
+  end
+
+  defp clear_session_pending_message(session) do
+    session
+    |> Ash.Changeset.for_update(:update, %{pending_message_id: nil})
+    |> Ash.update()
+    |> case do
+      {:ok, _} -> :ok
+      {:error, _} = error -> error
     end
   end
 

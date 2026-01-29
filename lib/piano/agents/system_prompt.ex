@@ -26,8 +26,7 @@ defmodule Piano.Agents.SystemPrompt do
   defp maybe_append_tools(parts, tools) do
     tools_text =
       tools
-      |> Enum.map(&format_tool/1)
-      |> Enum.join("\n")
+      |> Enum.map_join("\n", &format_tool/1)
 
     if tools_text == "" do
       parts
@@ -39,12 +38,11 @@ defmodule Piano.Agents.SystemPrompt do
   defp format_tool(%ReqLLM.Tool{name: name, description: desc, parameter_schema: schema}) do
     params =
       schema
-      |> Enum.map(fn {key, opts} ->
+      |> Enum.map_join(", ", fn {key, opts} ->
         required = if opts[:required], do: "required", else: "optional"
         type_str = format_type(opts[:type])
         "#{key} (#{type_str}, #{required})"
       end)
-      |> Enum.join(", ")
 
     "#{name} - #{desc}#{format_params_suffix(params)}"
   end

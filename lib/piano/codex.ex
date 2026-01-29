@@ -39,9 +39,6 @@ defmodule Piano.Codex do
         {:ok, %{status: :pending}} ->
           Logger.debug("Codex thread pending", thread_id: thread.id)
           {:ok, interaction}
-
-        {:error, _} = error ->
-          error
       end
     end
   end
@@ -86,7 +83,7 @@ defmodule Piano.Codex do
   # Private Functions
 
   defp load_interaction(%Interaction{} = interaction) do
-    case Ash.load(interaction, [:thread, :surface, thread: [:agent]]) do
+    case Ash.load(interaction, [:thread, thread: [:agent]]) do
       {:ok, loaded} -> {:ok, loaded}
       {:error, reason} -> {:error, {:load_failed, reason}}
     end
@@ -101,25 +98,24 @@ defmodule Piano.Codex do
 
   defp resolve_thread(%Interaction{thread: %Thread{} = thread}), do: {:ok, thread}
 
-  defp resolve_thread(%Interaction{thread: nil, surface: surface}) do
-    with {:ok, thread} <- find_recent_thread(surface.id) do
-      {:ok, thread}
-    else
-      {:error, :not_found} -> create_thread(surface.id)
+  defp resolve_thread(%Interaction{thread: nil, reply_to: reply_to}) do
+    case find_recent_thread(reply_to) do
+      {:ok, thread} -> {:ok, thread}
+      {:error, :not_found} -> create_thread(reply_to)
       {:error, _} = error -> error
     end
   end
 
-  defp find_recent_thread(surface_id) do
-    case Ash.read(Thread, action: :find_recent_for_surface, input: %{surface_id: surface_id}) do
+  defp find_recent_thread(reply_to) do
+    case Ash.read(Thread, action: :find_recent_for_reply_to, input: %{reply_to: reply_to}) do
       {:ok, [thread | _]} -> {:ok, thread}
       {:ok, []} -> {:error, :not_found}
       {:error, _} = error -> error
     end
   end
 
-  defp create_thread(surface_id) do
-    Ash.create(Thread, %{surface_id: surface_id}, action: :create)
+  defp create_thread(reply_to) do
+    Ash.create(Thread, %{reply_to: reply_to}, action: :create)
   end
 
   defp ensure_codex_thread(%Thread{codex_thread_id: id} = thread, _client)

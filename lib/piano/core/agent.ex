@@ -1,4 +1,7 @@
 defmodule Piano.Core.Agent do
+  @moduledoc """
+  Core agent resource for Codex interactions.
+  """
   use Ash.Resource,
     domain: Piano.Core,
     data_layer: AshSqlite.DataLayer

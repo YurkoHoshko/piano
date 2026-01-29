@@ -1,4 +1,7 @@
 defmodule Piano.Core.Interaction do
+  @moduledoc """
+  Core interaction resource linking surfaces and threads.
+  """
   use Ash.Resource,
     domain: Piano.Core,
     data_layer: AshSqlite.DataLayer
@@ -19,6 +22,11 @@ defmodule Piano.Core.Interaction do
       allow_nil? false
     end
 
+    attribute :reply_to, :string do
+      allow_nil? false
+      description "Surface reference like 'telegram:<chat_id>:<message_id>' or 'liveview:<session_id>'"
+    end
+
     attribute :status, :atom do
       constraints one_of: [:pending, :in_progress, :complete, :interrupted, :failed]
       default :pending
@@ -37,10 +45,6 @@ defmodule Piano.Core.Interaction do
       allow_nil? true
     end
 
-    belongs_to :surface, Piano.Core.Surface do
-      allow_nil? false
-    end
-
     has_many :items, Piano.Core.InteractionItem
   end
 
@@ -49,12 +53,10 @@ defmodule Piano.Core.Interaction do
 
     create :create do
       primary? true
-      accept [:original_message]
+      accept [:original_message, :reply_to]
 
-      argument :surface_id, :uuid, allow_nil?: false
       argument :thread_id, :uuid, allow_nil?: true
 
-      change manage_relationship(:surface_id, :surface, type: :append)
       change manage_relationship(:thread_id, :thread, type: :append)
     end
 

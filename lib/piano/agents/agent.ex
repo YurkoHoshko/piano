@@ -1,4 +1,7 @@
 defmodule Piano.Agents.Agent do
+  @moduledoc """
+  Agent configuration resource for LLM behavior.
+  """
   use Ash.Resource,
     domain: Piano.Agents,
     data_layer: AshSqlite.DataLayer

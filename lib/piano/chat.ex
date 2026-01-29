@@ -1,4 +1,7 @@
 defmodule Piano.Chat do
+  @moduledoc """
+  Chat domain resources and policies.
+  """
   use Ash.Domain
 
   resources do

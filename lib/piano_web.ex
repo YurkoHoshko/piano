@@ -1,4 +1,7 @@
 defmodule PianoWeb do
+  @moduledoc """
+  Web interface helpers, router macros, and shared web configuration.
+  """
   def static_paths, do: ~w(assets fonts images favicon.ico robots.txt)
 
   def router do

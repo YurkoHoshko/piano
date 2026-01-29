@@ -177,12 +177,31 @@ defmodule Piano.TestHarness.MockLLMServer.Plug do
   end
 
   get "/v1/models" do
+    data = [
+      %{
+        id: "gpt-4",
+        slug: "gpt-4",
+        display_name: "gpt-4",
+        supported_reasoning_levels: [],
+        shell_type: "bash",
+        object: "model",
+        owned_by: "openai"
+      },
+      %{
+        id: "o3",
+        slug: "o3",
+        display_name: "o3",
+        supported_reasoning_levels: [],
+        shell_type: "bash",
+        object: "model",
+        owned_by: "openai"
+      }
+    ]
+
     models = %{
       object: "list",
-      data: [
-        %{id: "gpt-4", object: "model", owned_by: "openai"},
-        %{id: "o3", object: "model", owned_by: "openai"}
-      ]
+      data: data,
+      models: data
     }
 
     conn

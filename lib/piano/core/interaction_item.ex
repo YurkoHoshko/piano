@@ -1,4 +1,7 @@
 defmodule Piano.Core.InteractionItem do
+  @moduledoc """
+  Stores individual interaction items for a Codex turn.
+  """
   use Ash.Resource,
     domain: Piano.Core,
     data_layer: AshSqlite.DataLayer

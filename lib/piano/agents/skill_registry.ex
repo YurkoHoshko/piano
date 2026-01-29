@@ -68,22 +68,17 @@ defmodule Piano.Agents.SkillRegistry do
   """
   @spec load_skill(String.t()) :: String.t() | nil
   def load_skill(skill_name) do
-    case :ets.info(@ets_table) do
-      :undefined ->
-        nil
-
-      _ ->
-        case :ets.lookup(@ets_table, skill_name) do
-          [{^skill_name, skill}] ->
-            case File.read(skill.path) do
-              {:ok, content} -> content
-              {:error, _} -> nil
-            end
-
-          [] ->
-            nil
-        end
+    with true <- ets_ready?(),
+         [{^skill_name, skill}] <- :ets.lookup(@ets_table, skill_name),
+         {:ok, content} <- File.read(skill.path) do
+      content
+    else
+      _ -> nil
     end
+  end
+
+  defp ets_ready? do
+    :ets.info(@ets_table) != :undefined
   end
 
   @doc """
@@ -99,11 +94,10 @@ defmodule Piano.Agents.SkillRegistry do
       skill_list =
         skills
         |> Enum.sort_by(& &1.name)
-        |> Enum.map(fn skill ->
+        |> Enum.map_join("\n", fn skill ->
           desc = skill.description || "No description"
           "- #{skill.name}: #{desc}"
         end)
-        |> Enum.join("\n")
 
       """
       Use the load_skill tool to load a skill's full instructions.

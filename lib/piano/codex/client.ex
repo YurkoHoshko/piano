@@ -198,7 +198,7 @@ defmodule Piano.Codex.Client do
           %{id: id, result: %{decision: approval_decision(method, params)}}
 
         _ ->
-          %{id: id, error: %{code: -32601, message: "Method not supported"}}
+          %{id: id, error: %{code: -32_601, message: "Method not supported"}}
       end
 
     send_json(state.port, response)

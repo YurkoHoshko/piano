@@ -44,27 +44,32 @@ defmodule Piano.TestHarness.CodexReplay do
   def response_for(%{entry: entry} = fixture, endpoint) do
     entry = normalize(entry)
     response = Map.get(entry, "response") || Map.get(entry, "result") || %{}
-    status =
-      case Map.get(entry, "status") || Map.get(response, "status") do
-        value when is_integer(value) -> value
-        value when is_atom(value) and not is_nil(value) -> Plug.Conn.Status.code(value)
-        _ -> 200
-      end
+    status = response_status(entry, response)
+    {status, response_body(endpoint, response), fixture.path}
+  end
 
-    cond do
-      is_map(response) and Map.has_key?(response, "body") ->
-        {status, response["body"], fixture.path}
-
-      is_map(response) and openai_body?(response) ->
-        {status, response, fixture.path}
-
-      is_map(response) ->
-        {status, OpenAIReplay.build(endpoint, response), fixture.path}
-
-      true ->
-        {status, response, fixture.path}
+  defp response_status(entry, response) do
+    case Map.get(entry, "status") || Map.get(response, "status") do
+      value when is_integer(value) -> value
+      value when is_atom(value) and not is_nil(value) -> Plug.Conn.Status.code(value)
+      _ -> 200
     end
   end
+
+  defp response_body(endpoint, response) when is_map(response) do
+    cond do
+      Map.has_key?(response, "body") ->
+        response["body"]
+
+      openai_body?(response) ->
+        response
+
+      true ->
+        OpenAIReplay.build(endpoint, response)
+    end
+  end
+
+  defp response_body(_endpoint, response), do: response
 
   def models do
     OpenAIReplay.models()
@@ -117,41 +122,43 @@ defmodule Piano.TestHarness.CodexReplay do
   defp match_entry?(entry, endpoint, params) when is_map(entry) do
     entry = normalize(entry)
 
-    match =
-      Map.get(entry, "match") ||
-        Map.get(entry, "request") ||
-        Map.get(entry, "input") ||
-        %{}
-
-    match = normalize(match)
-
-    expected_endpoint =
-      match["endpoint"] ||
-        match["path"] ||
-        entry["endpoint"] ||
-        entry["path"]
+    match = extract_match(entry)
+    expected_endpoint = expected_endpoint(match, entry)
 
     if endpoint_matches?(expected_endpoint, endpoint) do
-      match_body =
-        match
-        |> Map.delete("endpoint")
-        |> Map.delete("path")
-        |> Map.delete("body")
-
-      body_match =
-        case Map.get(match, "body") do
-          nil -> match_body
-          body when is_map(body) -> normalize(body)
-          _ -> match_body
-        end
-
-      subset_match?(body_match, params)
+      match
+      |> body_match_from_match()
+      |> subset_match?(params)
     else
       false
     end
   end
 
   defp match_entry?(_, _, _), do: false
+
+  defp extract_match(entry) do
+    entry
+    |> Map.get("match", Map.get(entry, "request", Map.get(entry, "input", %{})))
+    |> normalize()
+  end
+
+  defp expected_endpoint(match, entry) do
+    match["endpoint"] || match["path"] || entry["endpoint"] || entry["path"]
+  end
+
+  defp body_match_from_match(match) do
+    match_body =
+      match
+      |> Map.delete("endpoint")
+      |> Map.delete("path")
+      |> Map.delete("body")
+
+    case Map.get(match, "body") do
+      nil -> match_body
+      body when is_map(body) -> normalize(body)
+      _ -> match_body
+    end
+  end
 
   defp endpoint_matches?(nil, _endpoint), do: true
   defp endpoint_matches?("/v1/chat/completions", :chat_completions), do: true

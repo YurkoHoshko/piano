@@ -1,4 +1,7 @@
 defmodule Piano.Core.Surface do
+  @moduledoc """
+  Core surface resource for external integrations.
+  """
   use Ash.Resource,
     domain: Piano.Core,
     data_layer: AshSqlite.DataLayer

@@ -1,4 +1,7 @@
 defmodule Piano.Core do
+  @moduledoc """
+  Core domain for surfaces, threads, and interactions.
+  """
   use Ash.Domain
 
   resources do

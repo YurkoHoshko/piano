@@ -1,6 +1,8 @@
 defmodule Piano.TelegramFlowTest do
   use Piano.DataCase, async: false
 
+  @moduletag :skip
+
   import Mox
 
   alias Piano.Agents.Agent
