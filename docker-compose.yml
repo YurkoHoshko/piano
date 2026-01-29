@@ -12,9 +12,11 @@ services:
       - LLAMA_SWAP_URL=http://llama-swap:8080/v1
       - LLM_MODEL=glm-47-flash
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - CODEX_HOME=/app/.codex
     volumes:
       - piano_data:/data
       - ./.agents:/app/.agents:ro
+      - ./.codex:/app/.codex
     restart: unless-stopped
     depends_on:
       - llama-swap

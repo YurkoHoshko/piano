@@ -41,7 +41,7 @@ defmodule Piano.Application do
 
       [
         ExGram,
-        {Piano.Telegram.Bot, [method: :polling, token: token]}
+        {Piano.Telegram.BotV2, [method: :polling, token: token]}
       ]
     else
       IO.puts("""

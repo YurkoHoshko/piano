@@ -50,8 +50,16 @@ RUN mix release
 FROM ${RUNNER_IMAGE}
 
 RUN apt-get update -y && \
-  apt-get install -y libstdc++6 openssl libncurses5 locales ca-certificates \
+  apt-get install -y libstdc++6 openssl libncurses5 locales ca-certificates curl git sudo \
   && apt-get clean && rm -f /var/lib/apt/lists/*_*
+
+# Install mise for runtime version management
+RUN curl https://mise.run | sh && \
+    cp /root/.local/bin/mise /usr/local/bin/mise
+
+# Install Codex CLI from GitHub release (musl build for glibc compatibility)
+RUN curl -L https://github.com/openai/codex/releases/download/rust-v0.92.0/codex-x86_64-unknown-linux-musl.tar.gz | tar xz -C /usr/local/bin && \
+    mv /usr/local/bin/codex-x86_64-unknown-linux-musl /usr/local/bin/codex
 
 # Set the locale
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
@@ -62,16 +70,19 @@ ENV LC_ALL en_US.UTF-8
 
 WORKDIR /app
 
-# Create a non-privileged user to run the app
-RUN useradd --create-home app
+# Create a non-privileged user to run the app with passwordless sudo
+RUN useradd --create-home app && \
+    echo "app ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 RUN mkdir -p /data && chown app:app /data
 
 # Set runner ENV
 ENV MIX_ENV="prod"
 ENV DATABASE_PATH="/data/piano.db"
+ENV CODEX_HOME="/app/.codex"
 
 # Copy the release from builder
 COPY --from=builder --chown=app:app /app/_build/${MIX_ENV}/rel/piano ./
+COPY --chown=app:app .codex /app/.codex
 
 USER app
 

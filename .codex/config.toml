@@ -1,0 +1,23 @@
+model = "gpt-oss-120b"
+model_provider = "llama_swap"
+sandbox_mode = "workspace-write"
+model_reasoning_effort = "high"
+
+[projects."/app"]
+trust_level = "trusted"
+
+[model_providers.llama_swap]
+name = "Llama-swap"
+base_url = "http://llama-swap:8080/v1"
+wire_api = "chat"
+
+[profiles.llama_swap_smart]
+model = "gpt-oss-120b"
+model_provider = "llama_swap"
+
+[profiles.llama_swap_fast]
+model = "gpt-oss-20b"
+model_provider = "llama_swap"
+
+[sandbox_workspace_write]
+network_access = true

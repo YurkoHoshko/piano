@@ -27,3 +27,6 @@ piano-*.tar
 *.db-shm
 *.db-wal
 
+# Codex home (keep config tracked)
+.codex/*
+!.codex/config.toml
