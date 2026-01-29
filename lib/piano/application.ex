@@ -7,15 +7,13 @@ defmodule Piano.Application do
   def start(_type, _args) do
     setup_admin_token()
     log_dev_reload_status()
-    init_skill_registry()
 
     children = [
       PianoWeb.Telemetry,
       Piano.Repo,
       {DNSCluster, query: Application.get_env(:piano, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Piano.PubSub},
-      Piano.Pipeline.MessageProducer,
-      Piano.Pipeline.AgentConsumer,
+      Piano.Codex.Client,
       Piano.Pipeline.CodexEventPipeline,
       PianoWeb.Endpoint
     ] ++ telegram_children()
@@ -94,24 +92,5 @@ defmodule Piano.Application do
     phoenix_live_reload started: #{live_reload_started}
     ═══════════════════════════════════════════════════════════════
     """)
-  end
-
-  defp init_skill_registry do
-    Piano.Agents.SkillRegistry.init()
-    skills = Piano.Agents.SkillRegistry.list_available()
-    skill_count = length(skills)
-
-    if skill_count > 0 do
-      skill_names = skills |> Enum.map_join(", ", & &1.name)
-
-      IO.puts("""
-
-      ═══════════════════════════════════════════════════════════════
-      🎯 Skills Discovered
-      ═══════════════════════════════════════════════════════════════
-      Found #{skill_count} skill(s): #{skill_names}
-      ═══════════════════════════════════════════════════════════════
-      """)
-    end
   end
 end

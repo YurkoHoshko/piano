@@ -69,10 +69,8 @@ defmodule Piano.MixProject do
       # Pipeline
       {:gen_stage, "~> 1.2"},
 
-      # HTTP client (for LLM calls)
+      # HTTP client (used by ExGram adapter)
       {:req, "~> 0.5"},
-      {:req_llm, "~> 1.2"},
-      {:yaml_elixir, "~> 2.9"},
       {:broadway, "~> 1.0"},
 
       # Testing

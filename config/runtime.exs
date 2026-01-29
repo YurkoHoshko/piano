@@ -37,13 +37,6 @@ if config_env() == :prod do
     check_origin: false,
     secret_key_base: secret_key_base
 
-  # LLM configuration
-  config :piano, :llm,
-    base_url: System.get_env("LLAMA_SWAP_URL", "http://localhost:8000/v1"),
-    default_model: System.get_env("LLM_MODEL", "gpt-oss-20b"),
-    prefix_model: System.get_env("LLM_PREFIX_MODEL", "false") == "true",
-    max_tokens: System.get_env("LLM_MAX_TOKENS", "16000") |> String.to_integer()
-
   # Telegram bot configuration
   telegram_token = System.get_env("TELEGRAM_BOT_TOKEN")
 

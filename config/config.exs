@@ -4,7 +4,7 @@ config :piano,
   ecto_repos: [Piano.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-config :piano, :ash_domains, [Piano.Chat, Piano.Agents, Piano.Telegram, Piano.Core]
+config :piano, :ash_domains, [Piano.Core]
 
 config :piano, PianoWeb.Endpoint,
   url: [host: "localhost"],
@@ -41,13 +41,6 @@ config :logger, :default_formatter,
   metadata: [:mfa, :request_id, :interaction_id, :thread_id, :codex_thread_id, :chat_id, :error]
 
 config :phoenix, :json_library, Jason
-
-# LLM configuration (llama-swap backend)
-config :piano, :llm,
-  base_url: System.get_env("LLAMA_SWAP_URL", "http://localhost:8000/v1"),
-  default_model: System.get_env("LLM_MODEL", "gpt-oss-20b"),
-  prefix_model: System.get_env("LLM_PREFIX_MODEL", "false") == "true",
-  max_tokens: System.get_env("LLM_MAX_TOKENS", "16000") |> String.to_integer()
 
 # Admin token for dashboard access
 config :piano, :admin_token, System.get_env("PIANO_ADMIN_TOKEN", "piano_admin")

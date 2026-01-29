@@ -107,6 +107,7 @@ defmodule Piano.CodexTest do
       fixture_path = "test/fixtures/codex/replay.json"
       codex_home = Path.expand("tmp/codex_home", File.cwd!())
       File.mkdir_p!(codex_home)
+      File.write!(Path.join(codex_home, "config.toml"), codex_config_toml(base_url))
 
       env = [
         {~c"OPENAI_BASE_URL", String.to_charlist(base_url)},
@@ -158,6 +159,22 @@ defmodule Piano.CodexTest do
 
   defp await_completion(interaction_id) do
     await_completion(interaction_id, 50)
+  end
+
+  defp codex_config_toml(base_url) do
+    """
+    model = "gpt-4"
+    model_provider = "openai"
+    sandbox_mode = "workspace-write"
+
+    [model_providers.openai]
+    name = "OpenAI"
+    base_url = "#{base_url}"
+    wire_api = "responses"
+
+    [sandbox_workspace_write]
+    network_access = true
+    """
   end
 
   defp await_replay_request do

@@ -9,8 +9,6 @@ services:
       - SECRET_KEY_BASE=${SECRET_KEY_BASE}
       - PHX_HOST=localhost
       - PORT=4000
-      - LLAMA_SWAP_URL=http://llama-swap:8080/v1
-      - LLM_MODEL=glm-47-flash
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - CODEX_HOME=/app/.codex
     volumes:

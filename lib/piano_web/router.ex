@@ -25,14 +25,6 @@ defmodule PianoWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
-    live "/chat", ChatLive
-  end
-
-  scope "/admin", PianoWeb.Admin do
-    pipe_through [:browser, :admin]
-
-    live "/agents", AgentListLive
-    live "/agents/:id", AgentEditLive
   end
 
   import Phoenix.LiveDashboard.Router
@@ -42,10 +34,7 @@ defmodule PianoWeb.Router do
 
     live_dashboard "/dashboard",
       metrics: PianoWeb.Telemetry,
-      ecto_repos: [Piano.Repo],
-      additional_pages: [
-        agents: PianoWeb.Admin.AgentsPage
-      ]
+      ecto_repos: [Piano.Repo]
   end
 
   if Application.compile_env(:piano, :test_routes, false) do

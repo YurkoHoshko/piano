@@ -20,8 +20,5 @@ config :piano, test_routes: true
 
 config :piano, :codex_replay_paths, []
 
-# Use mock LLM for tests
-config :piano, :llm_impl, Piano.LLM.Mock
-
 # Use mock Telegram API for tests
 config :piano, :telegram_api_impl, Piano.Telegram.API.Mock

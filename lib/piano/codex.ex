@@ -107,7 +107,9 @@ defmodule Piano.Codex do
   end
 
   defp find_recent_thread(reply_to) do
-    case Ash.read(Thread, action: :find_recent_for_reply_to, input: %{reply_to: reply_to}) do
+    query = Ash.Query.for_read(Thread, :find_recent_for_reply_to, %{reply_to: reply_to})
+
+    case Ash.read(query) do
       {:ok, [thread | _]} -> {:ok, thread}
       {:ok, []} -> {:error, :not_found}
       {:error, _} = error -> error

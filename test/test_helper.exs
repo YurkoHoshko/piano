@@ -6,8 +6,5 @@ case Application.ensure_all_started(:piano) do
   {:error, reason} -> raise "Failed to start :piano app for tests: #{inspect(reason)}"
 end
 
-# Define Mox mock for LLM
-Mox.defmock(Piano.LLM.Mock, for: Piano.LLM)
-
 # Define Mox mock for Telegram API
 Mox.defmock(Piano.Telegram.API.Mock, for: Piano.Telegram.API)
