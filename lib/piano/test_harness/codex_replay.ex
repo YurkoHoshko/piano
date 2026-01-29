@@ -27,6 +27,7 @@ defmodule Piano.TestHarness.CodexReplay do
   alias Piano.TestHarness.OpenAIReplay
 
   @type endpoint :: :chat_completions | :responses
+  @last_request_key {__MODULE__, :last_request}
 
   def match_fixture(endpoint, params) when endpoint in [:chat_completions, :responses] do
     params = normalize(params)
@@ -67,6 +68,27 @@ defmodule Piano.TestHarness.CodexReplay do
 
   def models do
     OpenAIReplay.models()
+  end
+
+  def record_request(endpoint, params) do
+    :persistent_term.put(@last_request_key, %{
+      endpoint: endpoint,
+      params: params,
+      recorded_at: System.system_time(:millisecond)
+    })
+
+    :ok
+  end
+
+  def last_request do
+    :persistent_term.get(@last_request_key, nil)
+  end
+
+  def clear_last_request do
+    :persistent_term.erase(@last_request_key)
+    :ok
+  rescue
+    _ -> :ok
   end
 
   defp fixtures do

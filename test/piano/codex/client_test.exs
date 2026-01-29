@@ -18,9 +18,13 @@ defmodule Piano.Codex.ClientTest do
     @tag :skip
     @tag timeout: 30_000
     test "initializes with real codex pointed at replay API", %{base_url: base_url, fixture_path: fixture_path} do
+      codex_home = Path.expand("tmp/codex_home", File.cwd!())
+      File.mkdir_p!(codex_home)
+
       env = [
         {~c"OPENAI_BASE_URL", String.to_charlist(base_url)},
-        {~c"OPENAI_API_KEY", ~c"test-key"}
+        {~c"OPENAI_API_KEY", ~c"test-key"},
+        {~c"CODEX_HOME", String.to_charlist(codex_home)}
       ]
 
       CodexReplayHelpers.with_replay_paths([fixture_path], fn ->
@@ -40,41 +44,16 @@ defmodule Piano.Codex.ClientTest do
   end
 
   describe "Client GenServer logic" do
-    test "tracks pending requests" do
+    test "initializes minimal state" do
       state = %Client{
         port: nil,
-        pending_requests: %{},
-        notification_handlers: %{},
-        request_handlers: %{},
-        next_id: 1,
         buffer: "",
-        initialized: false
+        initialized: false,
+        initialize_id: 1
       }
 
-      assert state.next_id == 1
-      assert state.pending_requests == %{}
-    end
-
-    test "notification handlers can be registered and unregistered" do
-      handlers = %{}
-      handler = fn _method, _params -> :ok end
-
-      handlers = Map.put(handlers, "test/event", handler)
-      assert Map.has_key?(handlers, "test/event")
-
-      handlers = Map.delete(handlers, "test/event")
-      refute Map.has_key?(handlers, "test/event")
-    end
-
-    test "request handlers can be registered" do
-      handlers = %{}
-      handler = fn _method, _params -> {:ok, %{decision: "accept"}} end
-
-      handlers = Map.put(handlers, "commandExecution/approve", handler)
-      assert Map.has_key?(handlers, "commandExecution/approve")
-
-      result = handlers["commandExecution/approve"].("commandExecution/approve", %{})
-      assert result == {:ok, %{decision: "accept"}}
+      refute state.initialized
+      assert state.initialize_id == 1
     end
   end
 

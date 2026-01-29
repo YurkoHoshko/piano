@@ -16,6 +16,7 @@ defmodule Piano.Application do
       {Phoenix.PubSub, name: Piano.PubSub},
       Piano.Pipeline.MessageProducer,
       Piano.Pipeline.AgentConsumer,
+      Piano.Pipeline.CodexEventPipeline,
       PianoWeb.Endpoint
     ] ++ telegram_children()
 

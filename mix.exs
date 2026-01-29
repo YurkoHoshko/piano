@@ -34,7 +34,6 @@ defmodule Piano.MixProject do
 
   defp deps do
     [
-      {:tidewave, "~> 0.5", only: :dev},
       {:phoenix, "~> 1.7"},
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_dashboard, "~> 0.8.7"},
@@ -62,6 +61,7 @@ defmodule Piano.MixProject do
       {:req, "~> 0.5"},
       {:req_llm, "~> 1.2"},
       {:yaml_elixir, "~> 2.9"},
+      {:broadway, "~> 1.0"},
 
       # Testing
       {:mox, "~> 1.0", only: :test},

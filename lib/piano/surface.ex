@@ -1,45 +1,40 @@
-defmodule Piano.Surface do
+defprotocol Piano.Surface do
   @moduledoc """
-  Behaviour for Surface implementations.
+  Protocol for Surface implementations.
 
   Surfaces are the interface between external messaging platforms
   (Telegram, LiveView, etc.) and the Piano orchestration system.
   """
+  @fallback_to_any true
 
-  alias Piano.Core.{Surface, Interaction}
+  alias Piano.Core.Interaction
 
-  @type event ::
-          :turn_started
-          | :turn_completed
-          | :item_started
-          | :item_completed
-          | :agent_message_delta
-          | :approval_required
+  @spec on_turn_started(t(), Interaction.t(), map()) :: {:ok, term()} | {:ok, :noop}
+  def on_turn_started(surface, interaction, params)
 
-  @type event_result :: {:ok, term()} | {:ok, :noop}
+  @spec on_turn_completed(t(), Interaction.t(), map()) :: {:ok, term()} | {:ok, :noop}
+  def on_turn_completed(surface, interaction, params)
 
-  @doc """
-  Handle an event from the Codex turn.
+  @spec on_item_started(t(), Interaction.t(), map()) :: {:ok, term()} | {:ok, :noop}
+  def on_item_started(surface, interaction, params)
 
-  Events:
-  - `:turn_started` - Turn has started processing
-  - `:item_started` - An item (message, tool call, etc.) has started
-  - `:item_completed` - An item has completed
-  - `:agent_message_delta` - Streaming text delta from agent
-  - `:turn_completed` - Turn has finished
-  - `:approval_required` - Tool execution requires approval
+  @spec on_item_completed(t(), Interaction.t(), map()) :: {:ok, term()} | {:ok, :noop}
+  def on_item_completed(surface, interaction, params)
 
-  For `:approval_required`, return `{:ok, :accept}` or `{:ok, :decline}`.
-  """
-  @callback handle_event(Surface.t(), Interaction.t(), event(), params :: map()) :: event_result()
+  @spec on_agent_message_delta(t(), Interaction.t(), map()) :: {:ok, term()} | {:ok, :noop}
+  def on_agent_message_delta(surface, interaction, params)
 
-  @doc """
-  Send a message to the surface.
-  """
-  @callback send_message(Surface.t(), message :: String.t()) :: :ok | {:error, term()}
+  @spec on_approval_required(t(), Interaction.t(), map()) :: {:ok, term()} | {:ok, :noop}
+  def on_approval_required(surface, interaction, params)
+end
 
-  @doc """
-  Send a typing indicator to the surface.
-  """
-  @callback send_typing(Surface.t()) :: :ok | {:error, term()}
+defimpl Piano.Surface, for: Any do
+  @moduledoc false
+
+  def on_turn_started(_surface, _interaction, _params), do: {:ok, :noop}
+  def on_turn_completed(_surface, _interaction, _params), do: {:ok, :noop}
+  def on_item_started(_surface, _interaction, _params), do: {:ok, :noop}
+  def on_item_completed(_surface, _interaction, _params), do: {:ok, :noop}
+  def on_agent_message_delta(_surface, _interaction, _params), do: {:ok, :noop}
+  def on_approval_required(_surface, _interaction, _params), do: {:ok, :noop}
 end

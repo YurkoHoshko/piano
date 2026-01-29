@@ -1,10 +1,12 @@
 defmodule Piano.CodexTest do
   use ExUnit.Case, async: false
+  require Logger
 
   alias Piano.Codex
   alias Piano.Codex.Client
-  alias Piano.Core.{Surface, Agent, Thread, Interaction, InteractionItem}
+  alias Piano.Core.{Surface, Thread, Interaction, InteractionItem}
   alias Piano.TestHarness.CodexReplayHelpers
+  alias Piano.TestHarness.CodexReplay
 
   @moduletag :codex
 
@@ -15,24 +17,6 @@ defmodule Piano.CodexTest do
     Piano.Repo.query!("DELETE FROM agents_v2")
     Piano.Repo.query!("DELETE FROM surfaces")
     :ok
-  end
-
-  describe "sandbox_policy mapping" do
-    test "maps read_only to readOnly" do
-      assert map_sandbox_policy(:read_only) == %{type: "readOnly"}
-    end
-
-    test "maps workspace_write to workspaceWrite" do
-      assert map_sandbox_policy(:workspace_write) == %{type: "workspaceWrite"}
-    end
-
-    test "maps full_access to dangerFullAccess" do
-      assert map_sandbox_policy(:full_access) == %{type: "dangerFullAccess"}
-    end
-
-    defp map_sandbox_policy(:read_only), do: %{type: "readOnly"}
-    defp map_sandbox_policy(:workspace_write), do: %{type: "workspaceWrite"}
-    defp map_sandbox_policy(:full_access), do: %{type: "dangerFullAccess"}
   end
 
   describe "item type mapping" do
@@ -59,20 +43,14 @@ defmodule Piano.CodexTest do
   describe "start_turn prerequisites" do
     setup do
       {:ok, surface} = Ash.create(Surface, %{app: :telegram, identifier: "test_chat"})
-      {:ok, agent} = Ash.create(Agent, %{
-        name: "Test Agent",
-        model: "gpt-4",
-        workspace_path: "/tmp/test_workspace",
-        sandbox_policy: :workspace_write
-      })
-      {:ok, thread} = Ash.create(Thread, %{surface_id: surface.id, agent_id: agent.id})
+      {:ok, thread} = Ash.create(Thread, %{surface_id: surface.id})
       {:ok, interaction} = Ash.create(Interaction, %{
         original_message: "Hello, world!",
         surface_id: surface.id,
         thread_id: thread.id
       })
 
-      {:ok, surface: surface, agent: agent, thread: thread, interaction: interaction}
+      {:ok, surface: surface, thread: thread, interaction: interaction}
     end
 
     test "loads interaction with relationships", %{interaction: interaction} do
@@ -80,7 +58,7 @@ defmodule Piano.CodexTest do
 
       assert loaded.thread != nil
       assert loaded.surface != nil
-      assert loaded.thread.agent != nil
+      assert loaded.thread.agent == nil
     end
 
     test "interaction can be started with turn_id", %{interaction: interaction} do
@@ -101,27 +79,49 @@ defmodule Piano.CodexTest do
     @describetag :integration
 
     setup do
-      :ok = ensure_app_started()
+      Logger.configure(level: :debug)
+      Logger.debug(
+        "Codex pipeline status pipeline=#{inspect(Process.whereis(Piano.Pipeline.CodexEventPipeline))} producer=#{inspect(Process.whereis(Piano.Pipeline.CodexEventProducer))}"
+      )
+
+      if is_nil(Process.whereis(Piano.Repo)) do
+        case Piano.Repo.start_link() do
+          {:ok, _} -> :ok
+          {:error, {:already_started, _}} -> :ok
+          {:error, reason} -> raise "Failed to start Piano.Repo: #{inspect(reason)}"
+        end
+      end
+
+      if is_nil(Process.whereis(Piano.Repo)) do
+        raise "Piano.Repo is not running after start attempt"
+      end
+
+      if is_nil(Process.whereis(Piano.PubSub)) do
+        case Phoenix.PubSub.Supervisor.start_link(name: Piano.PubSub) do
+          {:ok, _} -> :ok
+          {:error, {:already_started, _}} -> :ok
+          {:error, reason} -> raise "Failed to start Piano.PubSub: #{inspect(reason)}"
+        end
+      end
       :ok = CodexReplayHelpers.start_endpoint!()
       base_url = CodexReplayHelpers.base_url()
       fixture_path = "test/fixtures/codex/replay.json"
+      codex_home = Path.expand("tmp/codex_home", File.cwd!())
+      File.mkdir_p!(codex_home)
 
       env = [
         {~c"OPENAI_BASE_URL", String.to_charlist(base_url)},
-        {~c"OPENAI_API_KEY", ~c"test-key"}
+        {~c"OPENAI_API_KEY", ~c"test-key"},
+        {~c"CODEX_HOME", String.to_charlist(codex_home)}
       ]
 
       {:ok, _pid} = Client.start_link(name: :integration_client, env: env)
       Process.sleep(2000)
 
+      :ok = CodexReplay.clear_last_request()
+
       {:ok, surface} = Ash.create(Surface, %{app: :telegram, identifier: "integration_test"})
-      {:ok, agent} = Ash.create(Agent, %{
-        name: "Integration Agent",
-        model: "gpt-4",
-        workspace_path: "/tmp/integration_test",
-        sandbox_policy: :workspace_write
-      })
-      {:ok, thread} = Ash.create(Thread, %{surface_id: surface.id, agent_id: agent.id})
+      {:ok, thread} = Ash.create(Thread, %{surface_id: surface.id})
       {:ok, interaction} = Ash.create(Interaction, %{
         original_message: "What is 2+2?",
         surface_id: surface.id,
@@ -129,7 +129,9 @@ defmodule Piano.CodexTest do
       })
 
       on_exit(fn ->
-        Client.stop(:integration_client)
+        if Process.whereis(:integration_client) do
+          Client.stop(:integration_client)
+        end
       end)
 
       {:ok, fixture_path: fixture_path, interaction: interaction}
@@ -137,16 +139,15 @@ defmodule Piano.CodexTest do
 
     test "full turn flow persists response and items", %{fixture_path: fixture_path, interaction: interaction} do
       CodexReplayHelpers.with_replay_paths([fixture_path], fn ->
-        {:ok, completed} = Codex.start_turn(interaction, client: :integration_client)
+        {:ok, started} = Codex.start_turn(interaction, client: :integration_client)
+        {:ok, _request} = await_replay_request()
+        {:ok, completed} = await_completion(started.id)
 
         assert completed.status == :complete
         assert completed.response == "Generic replay response."
 
-        {:ok, items} =
-          Ash.read(InteractionItem,
-            action: :list_by_interaction,
-            input: %{interaction_id: completed.id}
-          )
+        query = Ash.Query.for_read(InteractionItem, :list_by_interaction, %{interaction_id: completed.id})
+        {:ok, items} = Ash.read(query)
 
         assert Enum.any?(items, fn item ->
           item.type == :agent_message and
@@ -156,29 +157,40 @@ defmodule Piano.CodexTest do
     end
   end
 
-  defp ensure_app_started do
-    case Application.ensure_all_started(:piano) do
-      {:ok, _} -> :ok
-      {:error, {:already_started, :piano}} -> :ok
-      {:error, reason} -> raise "Failed to start :piano app: #{inspect(reason)}"
-    end
+  defp await_completion(interaction_id) do
+    await_completion(interaction_id, 50)
+  end
 
-    if is_nil(Process.whereis(Piano.Repo)) do
-      case Piano.Repo.start_link() do
-        {:ok, _} -> :ok
-        {:error, {:already_started, _}} -> :ok
-        {:error, reason} -> raise "Failed to start Piano.Repo: #{inspect(reason)}"
-      end
-    end
+  defp await_replay_request do
+    await_replay_request(50)
+  end
 
-    if is_nil(Process.whereis(Piano.PubSub)) do
-      case Phoenix.PubSub.Supervisor.start_link(name: Piano.PubSub) do
-        {:ok, _} -> :ok
-        {:error, {:already_started, _}} -> :ok
-        {:error, reason} -> raise "Failed to start Piano.PubSub: #{inspect(reason)}"
-      end
-    end
+  defp await_replay_request(0), do: {:error, :timeout}
 
-    :ok
+  defp await_replay_request(attempts) do
+    case CodexReplay.last_request() do
+      nil ->
+        Process.sleep(100)
+        await_replay_request(attempts - 1)
+
+      request ->
+        {:ok, request}
+    end
+  end
+
+  defp await_completion(_interaction_id, 0), do: {:error, :timeout}
+
+  defp await_completion(interaction_id, attempts) do
+    case Ash.get(Interaction, interaction_id) do
+      {:ok, %{status: :complete} = interaction} ->
+        {:ok, interaction}
+
+      {:ok, _} ->
+        Process.sleep(100)
+        await_completion(interaction_id, attempts - 1)
+
+      {:error, _} = error ->
+        error
+    end
   end
 end

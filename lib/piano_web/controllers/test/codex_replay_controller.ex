@@ -6,7 +6,13 @@ defmodule PianoWeb.CodexReplayController do
   alias Piano.TestHarness.CodexReplay
 
   def chat_completions(conn, _params) do
-    respond(conn, :chat_completions, conn.body_params)
+    params = conn.body_params
+
+    if wants_sse?(conn, params) do
+      respond_stream(conn, :chat_completions, params)
+    else
+      respond(conn, :chat_completions, params)
+    end
   end
 
   def responses(conn, _params) do
@@ -25,6 +31,7 @@ defmodule PianoWeb.CodexReplayController do
 
   defp respond(conn, endpoint, params) do
     Logger.debug("Codex replay #{endpoint} request: #{inspect(params)}")
+    _ = CodexReplay.record_request(endpoint, params)
 
     case CodexReplay.match_fixture(endpoint, params) do
       {:ok, fixture} ->
@@ -44,6 +51,7 @@ defmodule PianoWeb.CodexReplayController do
 
   defp respond_stream(conn, endpoint, params) do
     Logger.debug("Codex replay #{endpoint} SSE request: #{inspect(params)}")
+    _ = CodexReplay.record_request(endpoint, params)
 
     case CodexReplay.match_fixture(endpoint, params) do
       {:ok, fixture} ->
@@ -55,7 +63,7 @@ defmodule PianoWeb.CodexReplayController do
           |> put_resp_header("x-codex-replay", path)
           |> send_chunked(status)
 
-        stream_events(conn, body)
+        stream_events(conn, endpoint, body)
 
       {:error, :no_match} ->
         conn
@@ -70,7 +78,7 @@ defmodule PianoWeb.CodexReplayController do
     String.contains?(accept, "text/event-stream") or stream_param
   end
 
-  defp stream_events(conn, body) do
+  defp stream_events(conn, :responses, body) do
     events = Piano.TestHarness.OpenAIReplay.stream_events(body)
 
     Enum.reduce_while(events, conn, fn event, conn ->
@@ -81,5 +89,22 @@ defmodule PianoWeb.CodexReplayController do
         {:error, _} -> {:halt, conn}
       end
     end)
+  end
+
+  defp stream_events(conn, :chat_completions, body) do
+    events = Piano.TestHarness.OpenAIReplay.stream_chat_events(body)
+
+    conn =
+      Enum.reduce_while(events, conn, fn event, conn ->
+        data = "data: " <> Jason.encode!(event) <> "\n\n"
+
+        case Plug.Conn.chunk(conn, data) do
+          {:ok, conn} -> {:cont, conn}
+          {:error, _} -> {:halt, conn}
+        end
+      end)
+
+    _ = Plug.Conn.chunk(conn, "data: [DONE]\n\n")
+    conn
   end
 end

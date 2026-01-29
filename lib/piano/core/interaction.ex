@@ -69,6 +69,10 @@ defmodule Piano.Core.Interaction do
       change set_attribute(:status, :in_progress)
     end
 
+    update :set_response do
+      accept [:response]
+    end
+
     update :complete do
       accept [:response]
       change set_attribute(:status, :complete)

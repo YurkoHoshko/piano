@@ -2,6 +2,14 @@ defmodule Piano.TestHarness.OpenAIReplay do
   @moduledoc false
 
   def build(:chat_completions, response) when is_map(response) do
+    model = response["model"] || "gpt-oss-120b"
+    created = System.system_time(:second)
+    usage = %{
+      prompt_tokens: response["prompt_tokens"] || 10,
+      completion_tokens: response["completion_tokens"] || 20,
+      total_tokens: response["total_tokens"] || 30
+    }
+
     message =
       case response do
         %{"tool_calls" => tool_calls} when is_list(tool_calls) and tool_calls != [] ->
@@ -27,8 +35,8 @@ defmodule Piano.TestHarness.OpenAIReplay do
     %{
       id: "chatcmpl-#{random_id()}",
       object: "chat.completion",
-      created: System.system_time(:second),
-      model: response["model"] || "gpt-4",
+      created: created,
+      model: model,
       choices: [
         %{
           index: 0,
@@ -36,42 +44,65 @@ defmodule Piano.TestHarness.OpenAIReplay do
           finish_reason: response["finish_reason"] || "stop"
         }
       ],
-      usage: %{
-        prompt_tokens: response["prompt_tokens"] || 10,
-        completion_tokens: response["completion_tokens"] || 20,
-        total_tokens: response["total_tokens"] || 30
-      }
+      usage: usage,
+      timings: response["timings"] || default_timings(usage)
     }
   end
 
   def build(:responses, response) when is_map(response) do
     text = response["content"] || "Mock response"
+    created_at = System.system_time(:second)
+    message_id = "msg_#{random_id()}"
 
     %{
       id: "resp-#{random_id()}",
       object: "response",
-      created_at: System.system_time(:second),
+      created_at: created_at,
+      model: response["model"] || "gpt-4",
       status: response["status"] || "completed",
-      output_text: text,
+      error: nil,
+      incomplete_details: nil,
+      instructions: response["instructions"],
+      max_output_tokens: response["max_output_tokens"],
+      usage: %{
+        input_tokens: response["prompt_tokens"] || 10,
+        output_tokens: response["completion_tokens"] || 20,
+        total_tokens: response["total_tokens"] || 30
+      },
       output: [
         %{
           type: "message",
-          id: "msg-#{random_id()}",
+          id: message_id,
+          status: "completed",
           role: "assistant",
           content: [
             %{
               type: "output_text",
-              text: text
+              text: text,
+              annotations: []
             }
           ]
         }
-      ]
+      ],
+      parallel_tool_calls: response["parallel_tool_calls"],
+      previous_response_id: response["previous_response_id"],
+      reasoning: response["reasoning"],
+      store: response["store"],
+      temperature: response["temperature"],
+      text: response["text"],
+      tool_choice: response["tool_choice"],
+      tools: response["tools"],
+      top_p: response["top_p"],
+      truncation: response["truncation"],
+      metadata: response["metadata"],
+      user: response["user"],
+      completed_at: response["completed_at"] || created_at
     }
   end
 
   def stream_events(response) when is_map(response) do
     response = normalize_map(response)
-    text = response["output_text"] || extract_output_text(response) || ""
+    text = extract_output_text(response) || ""
     output_item =
       case response["output"] do
         list when is_list(list) -> List.first(list) || %{}
@@ -83,6 +114,7 @@ defmodule Piano.TestHarness.OpenAIReplay do
     message_item = %{
       "type" => "message",
       "id" => item_id,
+      "status" => "in_progress",
       "role" => "assistant",
       "content" => [
         %{
@@ -119,14 +151,120 @@ defmodule Piano.TestHarness.OpenAIReplay do
     end)
   end
 
-  def models do
-    %{
-      object: "list",
-      data: [
-        %{id: "gpt-4", object: "model", owned_by: "openai"},
-        %{id: "o3", object: "model", owned_by: "openai"}
-      ]
+  def stream_chat_events(response) when is_map(response) do
+    response = normalize_map(response)
+    text = extract_chat_text(response)
+    reasoning = response["reasoning_content"] || response["reasoning"]
+
+    id = response["id"] || "chatcmpl-#{random_id()}"
+    created = response["created"] || System.system_time(:second)
+    model = response["model"] || "gpt-oss-120b"
+
+    usage = %{
+      "prompt_tokens" => response["prompt_tokens"] || 10,
+      "completion_tokens" => response["completion_tokens"] || 20,
+      "total_tokens" => response["total_tokens"] || 30
     }
+
+    [
+      %{
+        "id" => id,
+        "object" => "chat.completion.chunk",
+        "created" => created,
+        "model" => model,
+        "choices" => [
+          %{"index" => 0, "delta" => %{"role" => "assistant"}, "finish_reason" => nil}
+        ],
+        "usage" => usage
+      },
+      maybe_reasoning_chunk(id, created, model, reasoning, usage),
+      maybe_content_chunk(id, created, model, text, usage),
+      %{
+        "id" => id,
+        "object" => "chat.completion.chunk",
+        "created" => created,
+        "model" => model,
+        "choices" => [
+          %{"index" => 0, "delta" => %{}, "finish_reason" => "stop"}
+        ],
+        "timings" => default_timings(usage)
+      }
+    ]
+    |> List.flatten()
+    |> Enum.reject(&is_nil/1)
+  end
+
+  def models do
+    created = System.system_time(:second)
+
+    models = [
+      %{
+        id: "gpt-oss-120b",
+        name: "gpt-oss-120b",
+        created: created,
+        object: "model",
+        owned_by: "llama-swap"
+      },
+      %{
+        id: "gpt-oss-20b",
+        name: "gpt-oss-20b",
+        created: created,
+        object: "model",
+        owned_by: "llama-swap"
+      }
+    ]
+
+    %{object: "list", data: models}
+  end
+
+  defp maybe_reasoning_chunk(_id, _created, _model, nil, _usage), do: nil
+  defp maybe_reasoning_chunk(_id, _created, _model, "", _usage), do: nil
+
+  defp maybe_reasoning_chunk(id, created, model, reasoning, usage) do
+    %{
+      "id" => id,
+      "object" => "chat.completion.chunk",
+      "created" => created,
+      "model" => model,
+      "choices" => [
+        %{"index" => 0, "delta" => %{"reasoning_content" => reasoning}, "finish_reason" => nil}
+      ],
+      "usage" => usage
+    }
+  end
+
+  defp maybe_content_chunk(_id, _created, _model, "", _usage), do: nil
+
+  defp maybe_content_chunk(id, created, model, text, usage) do
+    %{
+      "id" => id,
+      "object" => "chat.completion.chunk",
+      "created" => created,
+      "model" => model,
+      "choices" => [
+        %{"index" => 0, "delta" => %{"content" => text}, "finish_reason" => nil}
+      ],
+      "usage" => usage
+    }
+  end
+
+  defp default_timings(%{prompt_tokens: prompt_tokens, completion_tokens: completion_tokens}) do
+    %{
+      "prompt_n" => max(prompt_tokens, 1),
+      "prompt_ms" => 200.0,
+      "prompt_per_token_ms" => 20.0,
+      "prompt_per_second" => 50.0,
+      "predicted_n" => max(completion_tokens, 1),
+      "predicted_ms" => 50.0,
+      "predicted_per_token_ms" => 25.0,
+      "predicted_per_second" => 40.0,
+      "n_ctx" => 32768,
+      "n_past" => max(prompt_tokens, 1)
+    }
+  end
+
+  defp default_timings(%{"prompt_tokens" => prompt_tokens, "completion_tokens" => completion_tokens}) do
+    default_timings(%{prompt_tokens: prompt_tokens, completion_tokens: completion_tokens})
   end
 
   defp extract_output_text(%{"output" => output}) when is_list(output) do
@@ -139,6 +277,16 @@ defmodule Piano.TestHarness.OpenAIReplay do
   end
 
   defp extract_output_text(_), do: nil
+
+  defp extract_chat_text(%{"choices" => choices}) when is_list(choices) do
+    choices
+    |> List.first()
+    |> Map.get("message", %{})
+    |> Map.get("content")
+  end
+
+  defp extract_chat_text(%{"content" => text}) when is_binary(text), do: text
+  defp extract_chat_text(_), do: ""
 
   defp add_event(events, event), do: events ++ [event]
 

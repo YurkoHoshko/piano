@@ -3,25 +3,26 @@ defmodule Piano.Codex.Client do
   GenServer wrapping the `codex app-server` process.
 
   Communicates via JSON-RPC 2.0 over stdio (JSONL).
-  Handles bidirectional communication - sends requests and receives
-  both responses and server-initiated requests (approvals).
+  This client is a thin wrapper that forwards all inbound messages
+  into the Codex event pipeline.
   """
   use GenServer
 
   require Logger
+  alias Piano.Pipeline.CodexEventProducer
+  alias Piano.Codex.RequestMap
+  alias Piano.Core.Interaction
+  import Ash.Expr, only: [expr: 1]
+  require Ash.Query
+  require Piano.Surface
 
   @default_codex_command "codex"
-  @initialize_timeout 30_000
-  @request_timeout 60_000
 
   defstruct [
     :port,
-    :pending_requests,
-    :notification_handlers,
-    :request_handlers,
-    :next_id,
     :buffer,
-    :initialized
+    :initialized,
+    :initialize_id
   ]
 
   # Client API
@@ -32,47 +33,17 @@ defmodule Piano.Codex.Client do
   end
 
   @doc """
-  Send a JSON-RPC request and wait for response.
+  Send a JSON-RPC request (response is delivered via the event pipeline).
   """
-  def request(client \\ __MODULE__, method, params, timeout \\ @request_timeout) do
-    GenServer.call(client, {:request, method, params}, timeout)
+  def send_request(client \\ __MODULE__, method, params, id) when not is_nil(id) do
+    GenServer.cast(client, {:send, %{id: id, method: method, params: params}})
   end
 
   @doc """
   Send a JSON-RPC notification (no response expected).
   """
   def notify(client \\ __MODULE__, method, params) do
-    GenServer.cast(client, {:notify, method, params})
-  end
-
-  @doc """
-  Register a handler for server-initiated notifications.
-  Handler is a function (method, params) -> :ok
-  """
-  def register_notification_handler(client \\ __MODULE__, method, handler) do
-    GenServer.call(client, {:register_notification_handler, method, handler})
-  end
-
-  @doc """
-  Register a handler for server-initiated requests (like approvals).
-  Handler is a function (method, params) -> {:ok, result} | {:error, code, message}
-  """
-  def register_request_handler(client \\ __MODULE__, method, handler) do
-    GenServer.call(client, {:register_request_handler, method, handler})
-  end
-
-  @doc """
-  Unregister a notification handler.
-  """
-  def unregister_notification_handler(client \\ __MODULE__, method) do
-    GenServer.call(client, {:unregister_notification_handler, method})
-  end
-
-  @doc """
-  Unregister a request handler.
-  """
-  def unregister_request_handler(client \\ __MODULE__, method) do
-    GenServer.call(client, {:unregister_request_handler, method})
+    GenServer.cast(client, {:send, %{method: method, params: params}})
   end
 
   @doc """
@@ -98,6 +69,7 @@ defmodule Piano.Codex.Client do
       Keyword.get(opts, :codex_args, Application.get_env(:piano, :codex_args, ["app-server"]))
     env = Keyword.get(opts, :env, [])
     auto_initialize = Keyword.get(opts, :auto_initialize, true)
+    initialize_id = Keyword.get(opts, :initialize_id, 1)
 
     port_opts = [
       :binary,
@@ -113,12 +85,9 @@ defmodule Piano.Codex.Client do
 
     state = %__MODULE__{
       port: port,
-      pending_requests: %{},
-      notification_handlers: %{},
-      request_handlers: %{},
-      next_id: 1,
       buffer: "",
-      initialized: false
+      initialized: false,
+      initialize_id: initialize_id
     }
 
     if auto_initialize do
@@ -129,67 +98,21 @@ defmodule Piano.Codex.Client do
   end
 
   @impl true
-  def handle_call({:request, method, params}, from, state) do
-    {id, state} = next_request_id(state)
-
-    request = %{
-      id: id,
-      method: method,
-      params: params
-    }
-
-    send_json(state.port, request)
-
-    timer_ref = Process.send_after(self(), {:request_timeout, id}, @request_timeout)
-
-    state = %{state |
-      pending_requests: Map.put(state.pending_requests, id, {from, timer_ref})
-    }
-
-    {:noreply, state}
-  end
-
-  def handle_call({:register_notification_handler, method, handler}, _from, state) do
-    state = %{state | notification_handlers: Map.put(state.notification_handlers, method, handler)}
-    {:reply, :ok, state}
-  end
-
-  def handle_call({:register_request_handler, method, handler}, _from, state) do
-    state = %{state | request_handlers: Map.put(state.request_handlers, method, handler)}
-    {:reply, :ok, state}
-  end
-
-  def handle_call({:unregister_notification_handler, method}, _from, state) do
-    state = %{state | notification_handlers: Map.delete(state.notification_handlers, method)}
-    {:reply, :ok, state}
-  end
-
-  def handle_call({:unregister_request_handler, method}, _from, state) do
-    state = %{state | request_handlers: Map.delete(state.request_handlers, method)}
-    {:reply, :ok, state}
-  end
-
   def handle_call(:ready?, _from, state) do
     {:reply, state.initialized, state}
   end
 
   @impl true
-  def handle_cast({:notify, method, params}, state) do
-    notification = %{
-      method: method,
-      params: params
-    }
-
-    send_json(state.port, notification)
+  def handle_cast({:send, message}, state) do
+    log_outbound(message)
+    send_json(state.port, message)
     {:noreply, state}
   end
 
   @impl true
   def handle_info(:do_initialize, state) do
-    {id, state} = next_request_id(state)
-
     request = %{
-      id: id,
+      id: state.initialize_id,
       method: "initialize",
       params: %{
         clientInfo: %{
@@ -202,35 +125,7 @@ defmodule Piano.Codex.Client do
 
     send_json(state.port, request)
 
-    timer_ref = Process.send_after(self(), {:initialize_timeout, id}, @initialize_timeout)
-
-    state = %{state |
-      pending_requests: Map.put(state.pending_requests, id, {:initialize, timer_ref})
-    }
-
     {:noreply, state}
-  end
-
-  def handle_info({:request_timeout, id}, state) do
-    case Map.pop(state.pending_requests, id) do
-      {{from, _timer_ref}, pending_requests} ->
-        GenServer.reply(from, {:error, :timeout})
-        {:noreply, %{state | pending_requests: pending_requests}}
-
-      {nil, _} ->
-        {:noreply, state}
-    end
-  end
-
-  def handle_info({:initialize_timeout, id}, state) do
-    case Map.get(state.pending_requests, id) do
-      {:initialize, _timer_ref} ->
-        Logger.error("Codex initialize timeout")
-        {:stop, :initialize_timeout, state}
-
-      _ ->
-        {:noreply, state}
-    end
   end
 
   def handle_info({port, {:data, {:eol, line}}}, %{port: port} = state) do
@@ -276,68 +171,34 @@ defmodule Piano.Codex.Client do
   end
 
   defp handle_message(%{"id" => id, "result" => result}, state) when not is_nil(id) do
-    case Map.pop(state.pending_requests, id) do
-      {{:initialize, timer_ref}, pending_requests} ->
-        Process.cancel_timer(timer_ref)
-
-        notification = %{
-          method: "initialized",
-          params: %{}
-        }
-
-        send_json(state.port, notification)
-        Logger.info("Codex client initialized")
-
-        {:noreply, %{state | pending_requests: pending_requests, initialized: true}}
-
-      {{from, timer_ref}, pending_requests} ->
-        Process.cancel_timer(timer_ref)
-        GenServer.reply(from, {:ok, result})
-        {:noreply, %{state | pending_requests: pending_requests}}
-
-      {nil, _} ->
-        Logger.warning("Received response for unknown request id: #{id}")
-        {:noreply, state}
-    end
+    state = maybe_handle_initialize(id, state)
+    Logger.debug("Codex RPC response received id=#{inspect(id)} result=#{inspect(summarize(result))}")
+    enqueue_response(%{"id" => id, "result" => result})
+    {:noreply, state}
   end
 
   defp handle_message(%{"id" => id, "error" => error}, state) when not is_nil(id) do
-    case Map.pop(state.pending_requests, id) do
-      {{:initialize, timer_ref}, _pending_requests} ->
-        Process.cancel_timer(timer_ref)
-        Logger.error("Codex initialize failed: #{inspect(error)}")
-        {:stop, {:initialize_error, error}, state}
-
-      {{from, timer_ref}, pending_requests} ->
-        Process.cancel_timer(timer_ref)
-        GenServer.reply(from, {:error, error})
-        {:noreply, %{state | pending_requests: pending_requests}}
-
-      {nil, _} ->
-        Logger.warning("Received error for unknown request id: #{id}")
-        {:noreply, state}
-    end
+    state = maybe_handle_initialize(id, state)
+    Logger.debug("Codex RPC error received id=#{inspect(id)} error=#{inspect(error)}")
+    enqueue_response(%{"id" => id, "error" => error})
+    {:noreply, state}
   end
 
-  defp handle_message(%{"id" => id, "method" => method, "params" => params}, state)
+  defp handle_message(%{"id" => id, "method" => method} = message, state)
        when not is_nil(id) do
+    params = Map.get(message, "params", %{})
+    enqueue_event(method, params)
+
     response =
-      case Map.get(state.request_handlers, method) do
-        nil ->
-          Logger.warning("No handler for request method: #{method}")
-          %{
-            id: id,
-            error: %{code: -32601, message: "Method not found"}
-          }
+      case method do
+        "commandExecution/approve" ->
+          %{id: id, result: %{decision: approval_decision(method, params)}}
 
-        handler ->
-          case handler.(method, params) do
-            {:ok, result} ->
-              %{id: id, result: result}
+        "fileChange/approve" ->
+          %{id: id, result: %{decision: approval_decision(method, params)}}
 
-            {:error, code, message} ->
-              %{id: id, error: %{code: code, message: message}}
-          end
+        _ ->
+          %{id: id, error: %{code: -32601, message: "Method not supported"}}
       end
 
     send_json(state.port, response)
@@ -345,24 +206,16 @@ defmodule Piano.Codex.Client do
   end
 
   defp handle_message(%{"method" => method, "params" => params}, state) do
-    case Map.get(state.notification_handlers, method) do
-      nil ->
-        case Map.get(state.notification_handlers, :default) do
-          nil ->
-            Logger.debug("No handler for notification: #{method}")
-
-          handler ->
-            Task.start(fn -> handler.(method, params) end)
-        end
-
-      handler ->
-        Task.start(fn -> handler.(method, params) end)
+    Logger.debug("Codex notification received method=#{method} params_keys=#{inspect(Map.keys(params))}")
+    if method in ["item/started", "item/completed", "turn/started", "turn/completed"] do
+      Logger.debug("Codex notification payload method=#{method} params=#{inspect(params, limit: :infinity)}")
     end
-
+    enqueue_event(method, params)
     {:noreply, state}
   end
 
   defp handle_message(%{"method" => method}, state) do
+    Logger.debug("Codex notification received method=#{method} (no params)")
     handle_message(%{"method" => method, "params" => %{}}, state)
   end
 
@@ -376,14 +229,117 @@ defmodule Piano.Codex.Client do
     Port.command(port, json <> "\n")
   end
 
-  defp next_request_id(state) do
-    {state.next_id, %{state | next_id: state.next_id + 1}}
-  end
-
   defp find_executable(command) do
     case System.find_executable(command) do
       nil -> raise "Could not find executable: #{command}"
       path -> path
+    end
+  end
+
+  defp maybe_handle_initialize(id, state) do
+    if id == state.initialize_id and not state.initialized do
+      send_json(state.port, %{method: "initialized", params: %{}})
+      Logger.info("Codex client initialized")
+      %{state | initialized: true}
+    else
+      state
+    end
+  end
+
+  defp enqueue_response(response) do
+    enqueue_event("rpc/response", response)
+  end
+
+  defp enqueue_event(method, params) do
+    CodexEventProducer.enqueue(%{
+      method: method,
+      params: params,
+      partition_key: extract_partition_key(params)
+    })
+  end
+
+  defp extract_partition_key(params) do
+    extract_thread_id(params) ||
+      extract_thread_id_from_response(params) ||
+      "codex"
+  end
+
+  defp extract_thread_id(%{"threadId" => thread_id}) when is_binary(thread_id), do: thread_id
+
+  defp extract_thread_id(params) when is_map(params) do
+    get_in(params, ["thread", "id"]) ||
+      get_in(params, ["turn", "threadId"]) ||
+      get_in(params, ["turn", "thread", "id"]) ||
+      get_in(params, ["item", "threadId"]) ||
+      get_in(params, ["item", "thread", "id"])
+  end
+
+  defp extract_thread_id(_), do: nil
+
+  defp extract_thread_id_from_response(%{"id" => id, "result" => result}) do
+    extract_thread_id(result) || lookup_request_thread(id)
+  end
+
+  defp extract_thread_id_from_response(%{"id" => id}), do: lookup_request_thread(id)
+  defp extract_thread_id_from_response(_), do: nil
+
+  defp lookup_request_thread(id) do
+    case RequestMap.get(id) do
+      {:ok, %{thread_id: thread_id}} -> thread_id
+      _ -> nil
+    end
+  end
+
+  defp summarize(value) when is_map(value) do
+    Map.take(value, ["threadId", "turnId", "thread", "turn"])
+  end
+
+  defp summarize(_), do: %{}
+
+  defp log_outbound(%{method: method} = message) when method in ["thread/start", "turn/start"] do
+    Logger.debug("Codex RPC request sent method=#{method} id=#{inspect(message[:id])}")
+  end
+
+  defp log_outbound(_), do: :ok
+
+  defp approval_decision(method, params) do
+    event = %{method: method, params: params}
+
+    with {:ok, interaction} <- fetch_interaction_for_approval(params),
+         {:ok, interaction} <- Ash.load(interaction, [:surface]) do
+      case Piano.Surface.on_approval_required(interaction.surface, interaction, event) do
+        {:ok, :accept} -> "accept"
+        {:ok, :decline} -> "decline"
+        {:ok, decision} when is_binary(decision) -> decision
+        _ -> "decline"
+      end
+    else
+      _ -> "decline"
+    end
+  end
+
+  defp fetch_interaction_for_approval(params) do
+    interaction_id = params["interactionId"]
+    turn_id = params["turnId"]
+
+    cond do
+      is_binary(interaction_id) ->
+        Ash.get(Interaction, interaction_id)
+
+      is_binary(turn_id) ->
+        query =
+          Interaction
+          |> Ash.Query.for_read(:read)
+          |> Ash.Query.filter(expr(codex_turn_id == ^turn_id))
+
+        case Ash.read(query) do
+          {:ok, [interaction | _]} -> {:ok, interaction}
+          {:ok, []} -> {:error, :not_found}
+          {:error, _} = error -> error
+        end
+
+      true ->
+        {:error, :not_found}
     end
   end
 end

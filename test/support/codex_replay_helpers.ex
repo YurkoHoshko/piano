@@ -9,12 +9,10 @@ defmodule Piano.TestHarness.CodexReplayHelpers do
 
     case Process.whereis(endpoint) do
       nil ->
-        _ = endpoint.start_link()
+        start_supervised_endpoint(endpoint)
 
-      pid ->
-        # Ensure the HTTP server starts by restarting the endpoint with server: true.
-        Supervisor.stop(pid)
-        _ = endpoint.start_link()
+      _pid ->
+        restart_supervised_endpoint(endpoint)
     end
 
     :ok
@@ -39,6 +37,48 @@ defmodule Piano.TestHarness.CodexReplayHelpers do
       fun.()
     after
       Application.put_env(:piano, :codex_replay_paths, original)
+    end
+  end
+
+  defp start_supervised_endpoint(endpoint) do
+    case Process.whereis(Piano.Supervisor) do
+      nil ->
+        case endpoint.start_link() do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _}} -> :ok
+          {:error, reason} -> raise "Failed to start #{inspect(endpoint)}: #{inspect(reason)}"
+        end
+
+      _pid ->
+        case Supervisor.start_child(Piano.Supervisor, endpoint.child_spec([])) do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _}} -> :ok
+          {:error, reason} -> raise "Failed to start #{inspect(endpoint)}: #{inspect(reason)}"
+        end
+    end
+  end
+
+  defp restart_supervised_endpoint(endpoint) do
+    case Process.whereis(Piano.Supervisor) do
+      nil ->
+        case endpoint.start_link() do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _}} -> :ok
+          {:error, reason} -> raise "Failed to start #{inspect(endpoint)}: #{inspect(reason)}"
+        end
+
+      _pid ->
+        case Supervisor.terminate_child(Piano.Supervisor, endpoint) do
+          :ok -> :ok
+          {:error, :not_found} -> :ok
+          {:error, reason} -> raise "Failed to stop #{inspect(endpoint)}: #{inspect(reason)}"
+        end
+
+        case Supervisor.restart_child(Piano.Supervisor, endpoint) do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _}} -> :ok
+          {:error, reason} -> raise "Failed to restart #{inspect(endpoint)}: #{inspect(reason)}"
+        end
     end
   end
 end
