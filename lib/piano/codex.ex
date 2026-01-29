@@ -54,6 +54,23 @@ defmodule Piano.Codex do
   end
 
   @doc """
+  Force-start a new Codex thread by clearing the cached thread id first.
+  """
+  def force_start_thread(%Thread{} = thread, client \\ Client) do
+    Logger.debug("Codex force-start thread", thread_id: thread.id)
+
+    with {:ok, updated} <- Ash.update(thread, %{codex_thread_id: nil}, action: :set_codex_thread_id) do
+      start_thread(updated, client)
+    end
+  end
+
+  def force_start_thread(thread_id, client) when is_binary(thread_id) do
+    with {:ok, thread} <- Ash.get(Thread, thread_id) do
+      force_start_thread(thread, client)
+    end
+  end
+
+  @doc """
   Read effective Codex app-server configuration.
   """
   def read_config(client \\ Client) do

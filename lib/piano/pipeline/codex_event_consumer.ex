@@ -19,7 +19,7 @@ defmodule Piano.Pipeline.CodexEventConsumer do
       _ ->
         if is_binary(method) and String.starts_with?(method, "codex/event/") do
           Logger.debug(
-            "Codex event received #{method} params=#{inspect(Map.take(params, ["turnId", "turn", "item", "type"]))}"
+            "Codex event received #{method} params=#{inspect(params)}"
           )
         end
 

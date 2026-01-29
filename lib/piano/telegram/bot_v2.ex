@@ -15,6 +15,7 @@ defmodule Piano.Telegram.BotV2 do
 
   command("start", description: "Welcome message")
   command("help", description: "Show help")
+  command("newthread", description: "Start a new Codex thread for this chat")
 
   middleware(ExGram.Middleware.IgnoreUsername)
 
@@ -29,6 +30,19 @@ defmodule Piano.Telegram.BotV2 do
 
   def handle({:command, :help, _msg}, context) do
     answer(context, "Just send any message to chat with me!")
+  end
+
+  def handle({:command, :newthread, msg}, context) do
+    chat_id = msg.chat.id
+
+    case Handler.force_new_thread(chat_id) do
+      {:ok, _} ->
+        answer(context, "✅ Starting a new thread for this chat.")
+
+      {:error, reason} ->
+        Logger.error("Failed to start new thread: #{inspect(reason)}")
+        answer(context, "⚠️ Failed to start a new thread. Please try again.")
+    end
   end
 
   def handle({:command, _command, _msg}, context) do

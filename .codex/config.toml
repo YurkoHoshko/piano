@@ -1,23 +1,64 @@
+# Codex configuration for Piano
+
+################################################################################
+# Core Model Selection
+################################################################################
+
+# Primary model used by Codex
 model = "gpt-oss-120b"
+
+# Provider id selected from [model_providers]
 model_provider = "llama_swap"
-sandbox_mode = "workspace-write"
+
+# Reasoning effort: minimal | low | medium | high | xhigh
 model_reasoning_effort = "high"
+
+################################################################################
+# Approval & Sandbox
+################################################################################
+
+# Filesystem/network sandbox policy for tool calls
+sandbox_mode = "workspace-write"
+
+################################################################################
+# Sandbox settings
+################################################################################
+
+[sandbox_workspace_write]
+# Allow outbound network access inside the sandbox
+network_access = true
+
+################################################################################
+# Projects (trust levels)
+################################################################################
 
 [projects."/app"]
 trust_level = "trusted"
 
+################################################################################
+# Model Providers
+################################################################################
+
+[model_providers]
+
+# Local LLM provider (llama-swap, Ollama-compatible API)
 [model_providers.llama_swap]
 name = "Llama-swap"
 base_url = "http://llama-swap:8080/v1"
 wire_api = "chat"
 
+################################################################################
+# Profiles (named presets)
+################################################################################
+
+[profiles]
+
 [profiles.llama_swap_smart]
 model = "gpt-oss-120b"
 model_provider = "llama_swap"
+model_reasoning_effort = "high"
 
 [profiles.llama_swap_fast]
 model = "gpt-oss-20b"
 model_provider = "llama_swap"
-
-[sandbox_workspace_write]
-network_access = true
+model_reasoning_effort = "medium"
