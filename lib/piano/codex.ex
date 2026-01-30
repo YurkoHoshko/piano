@@ -28,16 +28,16 @@ defmodule Piano.Codex do
     with {:ok, interaction} <- load_interaction(interaction),
          {:ok, thread} <- resolve_thread(interaction),
          {:ok, interaction} <- update_interaction_thread(interaction, thread) do
-      Logger.debug("Codex start_turn", interaction_id: interaction.id, thread_id: thread.id)
+      Logger.info("Codex start_turn", interaction_id: interaction.id, thread_id: thread.id)
 
       case ensure_codex_thread(thread, client) do
         {:ok, %{status: :ready, thread: thread}} ->
-          Logger.debug("Codex thread ready", thread_id: thread.id, codex_thread_id: thread.codex_thread_id)
+          Logger.info("Codex thread ready", thread_id: thread.id, codex_thread_id: thread.codex_thread_id)
           :ok = request_turn_start(interaction, thread, client)
           {:ok, interaction}
 
         {:ok, %{status: :pending}} ->
-          Logger.debug("Codex thread pending", thread_id: thread.id)
+          Logger.info("Codex thread pending; interaction queued", interaction_id: interaction.id, thread_id: thread.id)
           {:ok, interaction}
       end
     end
@@ -56,8 +56,10 @@ defmodule Piano.Codex do
   @doc """
   Force-start a new Codex thread by clearing the cached thread id first.
   """
-  def force_start_thread(%Thread{} = thread, client \\ Client) do
-    Logger.debug("Codex force-start thread", thread_id: thread.id)
+  def force_start_thread(thread, client \\ Client)
+
+  def force_start_thread(%Thread{} = thread, client) do
+    Logger.info("Codex force-start thread", thread_id: thread.id)
 
     with {:ok, updated} <- Ash.update(thread, %{codex_thread_id: nil}, action: :set_codex_thread_id) do
       start_thread(updated, client)
@@ -75,6 +77,7 @@ defmodule Piano.Codex do
   """
   def read_config(client \\ Client) do
     request_id = request_id()
+    :ok = RequestMap.put(request_id, %{type: :config_read})
     :ok = Client.send_request(client, "config/read", %{}, request_id)
     {:ok, request_id}
   end
@@ -113,12 +116,20 @@ defmodule Piano.Codex do
     end
   end
 
-  defp resolve_thread(%Interaction{thread: %Thread{} = thread}), do: {:ok, thread}
+  defp resolve_thread(%Interaction{thread: %Thread{} = thread}) do
+    Logger.info("Codex thread resolved (interaction already has thread)", thread_id: thread.id)
+    {:ok, thread}
+  end
 
   defp resolve_thread(%Interaction{thread: nil, reply_to: reply_to}) do
     case find_recent_thread(reply_to) do
-      {:ok, thread} -> {:ok, thread}
-      {:error, :not_found} -> create_thread(reply_to)
+      {:ok, thread} ->
+        Logger.info("Codex thread resolved (found recent for reply_to)", thread_id: thread.id)
+        {:ok, thread}
+
+      {:error, :not_found} ->
+        create_thread(reply_to)
+
       {:error, _} = error -> error
     end
   end
@@ -134,7 +145,14 @@ defmodule Piano.Codex do
   end
 
   defp create_thread(reply_to) do
-    Ash.create(Thread, %{reply_to: reply_to}, action: :create)
+    case Ash.create(Thread, %{reply_to: reply_to}, action: :create) do
+      {:ok, thread} ->
+        Logger.info("Codex thread created", thread_id: thread.id)
+        {:ok, thread}
+
+      other ->
+        other
+    end
   end
 
   defp ensure_codex_thread(%Thread{codex_thread_id: id} = thread, _client)
@@ -143,7 +161,7 @@ defmodule Piano.Codex do
   end
 
   defp ensure_codex_thread(%Thread{} = thread, client) do
-    Logger.debug("Codex thread missing codex_thread_id, starting", thread_id: thread.id)
+    Logger.info("Codex thread missing codex_thread_id, starting", thread_id: thread.id)
     {:ok, _request_id} = start_thread(thread, client)
     {:ok, %{status: :pending, thread: thread}}
   end
@@ -153,7 +171,10 @@ defmodule Piano.Codex do
       {:ok, %{interaction | thread: thread}}
     else
       case Ash.update(interaction, %{thread_id: thread.id}, action: :assign_thread) do
-        {:ok, updated} -> {:ok, %{updated | thread: thread}}
+        {:ok, updated} ->
+          Logger.info("Interaction assigned thread", interaction_id: updated.id, thread_id: thread.id)
+          {:ok, %{updated | thread: thread}}
+
         {:error, reason} -> {:error, {:thread_assign_failed, reason}}
       end
     end
@@ -173,9 +194,10 @@ defmodule Piano.Codex do
     :ok = RequestMap.put(request_id, %{
       type: :turn_start,
       thread_id: thread.id,
-      interaction_id: interaction.id
+      interaction_id: interaction.id,
+      client: client
     })
-    Logger.debug("Codex turn/start request", request_id: request_id, thread_id: thread.id)
+    Logger.info("Codex turn/start request", request_id: request_id, thread_id: thread.id, interaction_id: interaction.id)
     Client.send_request(client, "turn/start", params, request_id)
   end
 

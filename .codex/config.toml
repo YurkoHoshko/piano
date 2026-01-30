@@ -4,17 +4,8 @@
 # Core Model Selection
 ################################################################################
 
-# Primary model used by Codex
-model = "gpt-oss-120b"
-
-# Provider id selected from [model_providers]
-model_provider = "llama_swap"
-
 # Default profile (overridden by CLI --profile)
-profile = "smart"
-
-# Reasoning effort: minimal | low | medium | high | xhigh
-model_reasoning_effort = "high"
+# NOTE: Do not set top-level model/model_provider here - they override profiles!
 
 ################################################################################
 # Approval & Sandbox
@@ -54,8 +45,6 @@ wire_api = "chat"
 [model_providers.openai]
 name = "OpenAI"
 base_url = "https://api.openai.com/v1"
-env_key = "OPENAI_API_KEY"
-wire_api = "chat"
 
 ################################################################################
 # Profiles (named presets)

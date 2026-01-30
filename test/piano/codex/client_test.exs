@@ -82,7 +82,8 @@ defmodule Piano.Codex.ClientTest do
       )
 
       args = CodexConfig.codex_args!()
-      assert hd(args) == "--profile"
+      assert hd(args) == "-c"
+      assert Enum.at(args, 1) == "profile=fast"
       assert Enum.at(args, 2) == "app-server"
     end
   end

@@ -43,11 +43,11 @@ defmodule Piano.Codex.Config do
   @doc """
   Effective `codex app-server` argv for the current profile.
 
-  We always pass `--profile` explicitly so the active profile is visible in logs.
+  We use `-c profile=<name>` to force the profile as a highest-precedence override.
   """
   def codex_args! do
     profile = current_profile!()
-    ["--profile", Atom.to_string(profile), "app-server"]
+    ["-c", "profile=#{Atom.to_string(profile)}", "app-server"]
   end
 
   def allowed_profiles! do

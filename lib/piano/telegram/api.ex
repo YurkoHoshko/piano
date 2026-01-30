@@ -8,6 +8,7 @@ defmodule Piano.Telegram.API do
   @callback edit_message_text(integer(), integer(), String.t(), keyword()) ::
               {:ok, any()} | {:error, any()}
   @callback answer_callback_query(String.t(), keyword()) :: {:ok, any()} | {:error, any()}
+  @callback send_document(integer(), any(), keyword()) :: {:ok, any()} | {:error, any()}
 
   @spec send_message(integer(), String.t(), keyword()) :: {:ok, any()} | {:error, any()}
   def send_message(chat_id, text, opts \\ []) do
@@ -28,6 +29,11 @@ defmodule Piano.Telegram.API do
   @spec answer_callback_query(String.t(), keyword()) :: {:ok, any()} | {:error, any()}
   def answer_callback_query(callback_query_id, opts \\ []) do
     impl().answer_callback_query(callback_query_id, opts)
+  end
+
+  @spec send_document(integer(), any(), keyword()) :: {:ok, any()} | {:error, any()}
+  def send_document(chat_id, document, opts \\ []) do
+    impl().send_document(chat_id, document, opts)
   end
 
   defp impl, do: Application.get_env(:piano, :telegram_api_impl, Piano.Telegram.API.Impl)
@@ -55,5 +61,10 @@ defmodule Piano.Telegram.API.Impl do
   @impl true
   def answer_callback_query(callback_query_id, opts) do
     ExGram.answer_callback_query(callback_query_id, opts)
+  end
+
+  @impl true
+  def send_document(chat_id, document, opts) do
+    ExGram.send_document(chat_id, document, opts)
   end
 end

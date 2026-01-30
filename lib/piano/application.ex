@@ -8,7 +8,11 @@ defmodule Piano.Application do
   @impl true
   def start(_type, _args) do
     setup_admin_token()
-    log_dev_reload_status()
+    Piano.Observability.init()
+
+    if Piano.Env.dev?() do
+      log_dev_reload_status()
+    end
 
     children = [
       PianoWeb.Telemetry,
@@ -24,8 +28,9 @@ defmodule Piano.Application do
 
     case Supervisor.start_link(children, opts) do
       {:ok, pid} ->
-        log_codex_boot_info()
+        Piano.Observability.boot_log()
         schedule_codex_account_status_read()
+        schedule_codex_config_read()
         {:ok, pid}
 
       other ->
@@ -39,28 +44,14 @@ defmodule Piano.Application do
     if telegram_config[:enabled] && telegram_config[:bot_token] do
       token = telegram_config[:bot_token]
 
-      IO.puts("""
-
-      ═══════════════════════════════════════════════════════════════
-      🤖 Telegram Bot Starting
-      ═══════════════════════════════════════════════════════════════
-      Bot is configured and will start polling for updates.
-      ═══════════════════════════════════════════════════════════════
-      """)
+      Logger.info("Telegram bot enabled (polling)")
 
       [
         ExGram,
         {Piano.Telegram.BotV2, [method: :polling, token: token]}
       ]
     else
-      IO.puts("""
-
-      ═══════════════════════════════════════════════════════════════
-      ℹ️  Telegram Bot Disabled
-      ═══════════════════════════════════════════════════════════════
-      Set TELEGRAM_BOT_TOKEN environment variable to enable.
-      ═══════════════════════════════════════════════════════════════
-      """)
+      Logger.info("Telegram bot disabled (set TELEGRAM_BOT_TOKEN to enable)")
 
       []
     end
@@ -73,20 +64,28 @@ defmodule Piano.Application do
   end
 
   defp setup_admin_token do
+    configured = System.get_env("PIANO_ADMIN_TOKEN") || Application.get_env(:piano, :admin_token)
+
     token =
-      :crypto.strong_rand_bytes(16)
-      |> Base.url_encode64(padding: false)
+      cond do
+        is_binary(configured) and configured != "" and configured != "piano_admin" ->
+          configured
+
+        true ->
+          :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
+      end
 
     Application.put_env(:piano, :admin_token, token)
 
-    IO.puts("""
+    if Piano.Env.dev?() do
+      Logger.info("Admin dashboard token set: /admin/agents?token=#{token}")
+    else
+      if configured in [nil, "", "piano_admin"] do
+        Logger.warning("Admin token was not configured; generated ephemeral token for this boot")
+      end
 
-    ═══════════════════════════════════════════════════════════════
-    🔐 Admin Token Generated
-    ═══════════════════════════════════════════════════════════════
-    Access admin dashboard at: /admin/agents?token=#{token}
-    ═══════════════════════════════════════════════════════════════
-    """)
+      Logger.info("Admin dashboard token configured")
+    end
   end
 
   defp log_dev_reload_status do
@@ -94,46 +93,9 @@ defmodule Piano.Application do
     code_reloader = Keyword.get(endpoint_config, :code_reloader, false)
     live_reload_started = match?({:ok, _}, Application.ensure_all_started(:phoenix_live_reload))
 
-    IO.puts("""
-
-    ═══════════════════════════════════════════════════════════════
-    🔁 Dev Reload Status
-    ═══════════════════════════════════════════════════════════════
-    code_reloader: #{code_reloader}
-    phoenix_live_reload started: #{live_reload_started}
-    ═══════════════════════════════════════════════════════════════
-    """)
-  end
-
-  defp log_codex_boot_info do
-    # Keep this resilient: config errors should be obvious, but we don't want
-    # startup logs to crash prod unless the config is truly required.
-    profiles =
-      try do
-        Piano.Codex.Config.profile_names()
-      rescue
-        e ->
-          Logger.error("Codex config missing/invalid: #{Exception.message(e)}")
-          []
-      end
-
-    current =
-      try do
-        Piano.Codex.Config.current_profile!()
-      rescue
-        _ -> :unknown
-      end
-
-    IO.puts("""
-
-    ═══════════════════════════════════════════════════════════════
-    🧠 Codex
-    ═══════════════════════════════════════════════════════════════
-    current_profile: #{inspect(current)}
-    profiles: #{inspect(profiles)}
-    auth: (checking...)
-    ═══════════════════════════════════════════════════════════════
-    """)
+    Logger.info(
+      "Dev reload status code_reloader=#{code_reloader} phoenix_live_reload=#{live_reload_started}"
+    )
   end
 
   defp schedule_codex_account_status_read do
@@ -143,6 +105,13 @@ defmodule Piano.Application do
       request_id = :erlang.unique_integer([:positive, :monotonic])
       :ok = Piano.Codex.RequestMap.put(request_id, %{type: :startup_account_read})
       :ok = Piano.Codex.Client.send_request("account/read", %{refreshToken: false}, request_id)
+    end)
+  end
+
+  defp schedule_codex_config_read do
+    Task.start(fn ->
+      wait_for_codex_ready(50)
+      _ = Piano.Codex.read_config()
     end)
   end
 

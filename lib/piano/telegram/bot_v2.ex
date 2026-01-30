@@ -26,6 +26,8 @@ defmodule Piano.Telegram.BotV2 do
   command("codexlogin", description: "Start Codex ChatGPT login flow (returns auth URL)")
   command("codexaccount", description: "Show Codex account/auth status")
   command("codexlogout", description: "Logout Codex")
+  command("transcript", description: "Get transcript of current thread")
+  command("status", description: "Show server status/boot info")
 
   middleware(ExGram.Middleware.IgnoreUsername)
 
@@ -53,6 +55,8 @@ defmodule Piano.Telegram.BotV2 do
       /codexlogin - start ChatGPT login (returns a link you open in a browser)
       /codexaccount - show Codex auth status
       /codexlogout - logout Codex
+      /transcript - get transcript of current thread
+      /status - show server status
       """
     )
   end
@@ -80,27 +84,29 @@ defmodule Piano.Telegram.BotV2 do
   end
 
   def handle({:command, :switchprofile, msg}, context) do
-    case parse_command_arg(msg.text) do
-      {:ok, profile_str} ->
-        available_strings = CodexConfig.profile_names() |> Enum.map(&Atom.to_string/1)
+    # ExGram passes just the argument in msg.text (e.g., "fast" not "/switchprofile fast")
+    profile_str = (msg.text || "") |> String.trim()
 
-        if profile_str in available_strings do
-          profile = String.to_atom(profile_str)
-          :ok = CodexConfig.set_current_profile!(profile)
+    if profile_str == "" do
+      answer(context, "Usage: /switchprofile <name>")
+    else
+      available_strings = CodexConfig.profile_names() |> Enum.map(&Atom.to_string/1)
 
-          answer(
-            context,
-            "✅ Profile set to #{profile}. Run /restartcodex to apply."
-          )
-        else
-          answer(
-            context,
-            "⚠️ Unknown profile: #{profile_str}\nUse /profiles to see available profiles."
-          )
+      if profile_str in available_strings do
+        profile = String.to_atom(profile_str)
+        :ok = CodexConfig.set_current_profile!(profile)
+
+        case CodexClient.restart() do
+          :ok ->
+            answer(context, "✅ Switched to #{profile} and restarted Codex.")
+
+          {:error, reason} ->
+            Logger.error("Failed to restart Codex after profile switch: #{inspect(reason)}")
+            answer(context, "✅ Profile set to #{profile}, but restart failed. Run /restartcodex.")
         end
-
-      :error ->
-        answer(context, "Usage: /switchprofile <name>")
+      else
+        answer(context, "⚠️ Unknown profile: #{profile_str}\nUse /profiles to see available.")
+      end
     end
   end
 
@@ -138,6 +144,26 @@ defmodule Piano.Telegram.BotV2 do
     answer(context, "Logging out Codex...")
   end
 
+  def handle({:command, :transcript, msg}, context) do
+    chat_id = msg.chat.id
+
+    case Handler.get_thread_transcript(chat_id) do
+      {:ok, :pending} ->
+        answer(context, "⏳ Fetching transcript...")
+
+      {:error, :no_thread} ->
+        answer(context, "No active thread found for this chat.")
+
+      {:error, reason} ->
+        Logger.error("Failed to get transcript: #{inspect(reason)}")
+        answer(context, "⚠️ Failed to get transcript.")
+    end
+  end
+
+  def handle({:command, :status, _msg}, context) do
+    answer(context, Piano.Observability.status_text())
+  end
+
   def handle({:command, _command, _msg}, context) do
     answer(context, "Unknown command. Send /help for available commands.")
   end
@@ -156,18 +182,6 @@ defmodule Piano.Telegram.BotV2 do
   end
 
   def handle(_event, _context), do: :ok
-
-  defp parse_command_arg(text) when is_binary(text) do
-    # "/switchprofile foo" (possibly with "@botname")
-    case String.split(text, ~r/\s+/, parts: 2, trim: true) do
-      [_cmd, arg] when byte_size(arg) > 0 ->
-        # Only take the first token after the command.
-        {:ok, arg |> String.trim() |> String.split(~r/\s+/, parts: 2, trim: true) |> hd()}
-
-      _ ->
-        :error
-    end
-  end
 
   defp new_request_id do
     :erlang.unique_integer([:positive, :monotonic])

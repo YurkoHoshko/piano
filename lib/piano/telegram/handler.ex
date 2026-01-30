@@ -10,6 +10,8 @@ defmodule Piano.Telegram.Handler do
   alias Piano.Core.Interaction
   alias Piano.Core.Thread
   alias Piano.Telegram.Surface, as: TelegramSurface
+  alias Piano.Codex.Client, as: CodexClient
+  alias Piano.Codex.RequestMap
 
   @doc """
   Handle an incoming Telegram text message.
@@ -18,25 +20,31 @@ defmodule Piano.Telegram.Handler do
   2. Creates an Interaction with reply_to
   3. Starts the Codex turn
   """
-  @spec handle_message(integer(), String.t()) :: {:ok, Interaction.t()} | {:error, term()}
+  @spec handle_message(integer(), String.t()) :: {:ok, term()} | {:error, term()}
   def handle_message(chat_id, text) do
-    with {:ok, reply_to} <- TelegramSurface.send_placeholder(chat_id),
-         {:ok, interaction} <- create_interaction(text, reply_to),
-         {:ok, interaction} <- start_turn(interaction) do
-      Logger.info("Telegram message processed",
-        chat_id: chat_id,
-        interaction_id: interaction.id
-      )
+    case maybe_handle_localhost_1455_link(chat_id, text) do
+      :handled ->
+        {:ok, :localhost_1455_checked}
 
-      {:ok, interaction}
-    else
-      {:error, reason} = error ->
-        Logger.error("Failed to handle Telegram message",
-          chat_id: chat_id,
-          error: inspect(reason)
-        )
+      :not_handled ->
+        with {:ok, reply_to} <- TelegramSurface.send_placeholder(chat_id),
+             {:ok, interaction} <- create_interaction(text, reply_to),
+             {:ok, interaction} <- start_turn(interaction) do
+          Logger.info("Telegram message processed",
+            chat_id: chat_id,
+            interaction_id: interaction.id
+          )
 
-        error
+          {:ok, interaction}
+        else
+          {:error, reason} = error ->
+            Logger.error("Failed to handle Telegram message",
+              chat_id: chat_id,
+              error: inspect(reason)
+            )
+
+            error
+        end
     end
   end
 
@@ -57,10 +65,8 @@ defmodule Piano.Telegram.Handler do
       {:error, :not_found} ->
         case Ash.create(Thread, %{reply_to: reply_to}, action: :create) do
           {:ok, thread} ->
-            case Piano.Codex.start_thread(thread) do
-              {:ok, request_id} -> {:ok, %{status: :started, request_id: request_id}}
-              {:error, reason} -> {:error, {:codex_start_failed, reason}}
-            end
+            {:ok, request_id} = Piano.Codex.start_thread(thread)
+            {:ok, %{status: :started, request_id: request_id}}
 
           {:error, reason} ->
             {:error, {:thread_create_failed, reason}}
@@ -74,6 +80,126 @@ defmodule Piano.Telegram.Handler do
   defp create_interaction(text, reply_to) do
     Ash.create(Interaction, %{original_message: text, reply_to: reply_to}, action: :create)
   end
+
+  defp maybe_handle_localhost_1455_link(chat_id, text) when is_integer(chat_id) and is_binary(text) do
+    url =
+      text
+      |> String.trim()
+      |> ensure_url_scheme()
+
+    if is_binary(url) do
+      case URI.parse(url) do
+        %URI{scheme: scheme, host: host, port: 1455}
+        when scheme in ["http", "https"] and host in ["localhost", "127.0.0.1", "::1"] ->
+          Logger.info("Telegram localhost:1455 link detected", chat_id: chat_id)
+
+          request_url = rewrite_localhost_to_ipv4(url)
+
+          result = check_with_curl(request_url)
+
+          _ =
+            case result do
+              {:ok, status} ->
+                Piano.Telegram.API.send_message(
+                  chat_id,
+                  "✅ localhost:1455 reachable (HTTP #{status}). No need to retry.",
+                  []
+                )
+
+              {:not_ok, status} ->
+                Piano.Telegram.API.send_message(
+                  chat_id,
+                  "⚠️ localhost:1455 responded (HTTP #{status}). Retrying won't help unless the service changes.",
+                  []
+                )
+
+              {:error, reason} ->
+                Piano.Telegram.API.send_message(
+                  chat_id,
+                  "❌ Can't reach localhost:1455 from the server (#{inspect(reason)}). Check that the service is running on port 1455.",
+                  []
+                )
+            end
+
+          :handled
+
+        _ ->
+          :not_handled
+      end
+    else
+      :not_handled
+    end
+  end
+
+  defp ensure_url_scheme(""), do: nil
+
+  defp ensure_url_scheme(url) when is_binary(url) do
+    if String.starts_with?(url, ["http://", "https://"]) do
+      url
+    else
+      "http://" <> url
+    end
+  end
+
+  # `localhost` can resolve to IPv6 first (`::1`). In our docker setup, port 1455
+  # is commonly bound on IPv4 loopback only, so force IPv4 to match `curl` behavior.
+  defp rewrite_localhost_to_ipv4(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{host: "localhost"} = uri -> uri |> Map.put(:host, "127.0.0.1") |> URI.to_string()
+      %URI{host: "::1"} = uri -> uri |> Map.put(:host, "127.0.0.1") |> URI.to_string()
+      _ -> url
+    end
+  end
+
+  defp check_with_curl(url) when is_binary(url) do
+    case System.find_executable("curl") do
+      nil ->
+        {:error, :curl_not_found}
+
+      curl ->
+        args = [
+          "--silent",
+          "--show-error",
+          "--location",
+          "--max-time",
+          "2",
+          "--connect-timeout",
+          "1",
+          "--output",
+          "/dev/null",
+          "--write-out",
+          "%{http_code}",
+          url
+        ]
+
+        case System.cmd(curl, args, stderr_to_stdout: true) do
+          {code_str, 0} ->
+            status = code_str |> String.trim() |> parse_http_code()
+
+            cond do
+              is_integer(status) and status in 200..399 ->
+                Logger.info("Telegram localhost:1455 check ok", status: status)
+                {:ok, status}
+
+              is_integer(status) ->
+                Logger.warning("Telegram localhost:1455 check not ok", status: status)
+                {:not_ok, status}
+
+              true ->
+                {:error, {:unexpected_curl_output, code_str}}
+            end
+
+          {output, exit_status} ->
+            {:error, {:curl_failed, exit_status, String.trim(output)}}
+        end
+    end
+  end
+
+  defp parse_http_code(<<a, b, c>>) when a in ?0..?9 and b in ?0..?9 and c in ?0..?9 do
+    (a - ?0) * 100 + (b - ?0) * 10 + (c - ?0)
+  end
+
+  defp parse_http_code(_), do: nil
 
   defp find_recent_thread(reply_to) do
     query = Ash.Query.for_read(Thread, :find_recent_for_reply_to, %{reply_to: reply_to})
@@ -89,6 +215,42 @@ defmodule Piano.Telegram.Handler do
     case Piano.Codex.start_turn(interaction) do
       {:ok, interaction} -> {:ok, interaction}
       {:error, reason} -> {:error, {:codex_start_failed, reason}}
+    end
+  end
+
+  @doc """
+  Request transcript for the current thread of a Telegram chat.
+  Returns {:ok, :pending} when request is sent, or {:error, reason} on failure.
+  The actual transcript is delivered asynchronously via Telegram.
+  """
+  @spec get_thread_transcript(integer()) :: {:ok, :pending} | {:error, term()}
+  def get_thread_transcript(chat_id) do
+    reply_to = "telegram:#{chat_id}"
+
+    case find_recent_thread(reply_to) do
+      {:ok, %{codex_thread_id: nil}} ->
+        {:error, :no_thread}
+
+      {:ok, %{codex_thread_id: codex_thread_id}} ->
+        request_id = :erlang.unique_integer([:positive, :monotonic])
+
+        :ok =
+          RequestMap.put(request_id, %{
+            type: :telegram_thread_transcript,
+            chat_id: chat_id,
+            codex_thread_id: codex_thread_id
+          })
+
+        :ok =
+          CodexClient.send_request("thread/read", %{threadId: codex_thread_id, includeTurns: true}, request_id)
+
+        {:ok, :pending}
+
+      {:error, :not_found} ->
+        {:error, :no_thread}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 end

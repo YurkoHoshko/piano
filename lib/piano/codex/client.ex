@@ -84,9 +84,17 @@ defmodule Piano.Codex.Client do
   def init(opts) do
     codex_command = Keyword.get(opts, :codex_command, Config.codex_command!())
     codex_args = Keyword.get(opts, :codex_args, Config.codex_args!())
-    env = Keyword.get(opts, :env, [])
+    env_overrides = Keyword.get(opts, :env, [])
     auto_initialize = Keyword.get(opts, :auto_initialize, true)
     initialize_id = Keyword.get(opts, :initialize_id, 1)
+
+    Logger.info("Starting Codex: #{codex_command} #{Enum.join(codex_args, " ")}")
+
+    env = build_port_env(env_overrides)
+
+    Logger.info(
+      "Codex environment codex_home=#{inspect(env_value(env, "CODEX_HOME"))} openai_base_url=#{inspect(env_value(env, "OPENAI_BASE_URL"))} openai_api_key?=#{env_value(env, "OPENAI_API_KEY") != nil}"
+    )
 
     port_opts = [
       :binary,
@@ -206,8 +214,15 @@ defmodule Piano.Codex.Client do
     params = Map.get(message, "params", %{})
     enqueue_event(method, params)
 
+    method_norm =
+      if is_binary(method) do
+        String.replace(method, ".", "/")
+      else
+        method
+      end
+
     response =
-      case method do
+      case method_norm do
         "commandExecution/approve" ->
           %{id: id, result: %{decision: approval_decision(method, params)}}
 
@@ -215,6 +230,12 @@ defmodule Piano.Codex.Client do
           %{id: id, result: %{decision: approval_decision(method, params)}}
 
         _ ->
+          Logger.warning("Codex server request not supported",
+            codex_method: method,
+            codex_method_normalized: method_norm,
+            codex_request_id: id
+          )
+
           %{id: id, error: %{code: -32_601, message: "Method not supported"}}
       end
 
@@ -223,10 +244,14 @@ defmodule Piano.Codex.Client do
   end
 
   defp handle_message(%{"method" => method, "params" => params}, state) do
-    Logger.debug("Codex notification received method=#{method} params_keys=#{inspect(Map.keys(params))}")
-    if method in ["item/started", "item/completed", "turn/started", "turn/completed"] do
-      Logger.debug("Codex notification payload method=#{method} params=#{inspect(params, limit: :infinity)}")
+    Logger.debug(
+      "Codex notification received method=#{method} params_keys=#{inspect(Map.keys(params))}"
+    )
+
+    if Application.get_env(:piano, :log_codex_event_payloads, false) do
+      Logger.debug("Codex notification payload method=#{method} params=#{inspect(params, limit: 50)}")
     end
+
     enqueue_event(method, params)
     {:noreply, state}
   end
@@ -250,6 +275,33 @@ defmodule Piano.Codex.Client do
     case System.find_executable(command) do
       nil -> raise "Could not find executable: #{command}"
       path -> path
+    end
+  end
+
+  defp build_port_env(env_overrides) when is_list(env_overrides) do
+    base =
+      System.get_env()
+      |> Enum.map(fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)
+
+    overrides =
+      env_overrides
+      |> Enum.map(fn {k, v} -> {to_charlist(k), to_charlist(v)} end)
+
+    merged =
+      (base ++ overrides)
+      |> Enum.reverse()
+      |> Enum.uniq_by(fn {k, _v} -> k end)
+      |> Enum.reverse()
+
+    merged
+  end
+
+  defp env_value(env, key) when is_list(env) and is_binary(key) do
+    k = String.to_charlist(key)
+
+    case Enum.find(env, fn {ek, _} -> ek == k end) do
+      {_, v} -> List.to_string(v)
+      nil -> nil
     end
   end
 
