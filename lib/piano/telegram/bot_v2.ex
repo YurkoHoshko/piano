@@ -12,10 +12,20 @@ defmodule Piano.Telegram.BotV2 do
   require Logger
 
   alias Piano.Telegram.Handler
+  alias Piano.Codex.Client, as: CodexClient
+  alias Piano.Codex.Config, as: CodexConfig
+  alias Piano.Codex.RequestMap
 
   command("start", description: "Welcome message")
   command("help", description: "Show help")
   command("newthread", description: "Start a new Codex thread for this chat")
+  command("profiles", description: "List available Codex profiles")
+  command("profile", description: "Show current Codex profile")
+  command("switchprofile", description: "Switch Codex profile (requires restart)")
+  command("restartcodex", description: "Restart Codex app-server process")
+  command("codexlogin", description: "Start Codex ChatGPT login flow (returns auth URL)")
+  command("codexaccount", description: "Show Codex account/auth status")
+  command("codexlogout", description: "Logout Codex")
 
   middleware(ExGram.Middleware.IgnoreUsername)
 
@@ -29,7 +39,22 @@ defmodule Piano.Telegram.BotV2 do
   end
 
   def handle({:command, :help, _msg}, context) do
-    answer(context, "Just send any message to chat with me!")
+    answer(
+      context,
+      """
+      Send any message to chat with me.
+
+      Commands:
+      /newthread - start a new thread for this chat
+      /profiles - list available Codex profiles
+      /profile - show current Codex profile
+      /switchprofile <name> - switch profile (run /restartcodex to apply)
+      /restartcodex - restart Codex app-server
+      /codexlogin - start ChatGPT login (returns a link you open in a browser)
+      /codexaccount - show Codex auth status
+      /codexlogout - logout Codex
+      """
+    )
   end
 
   def handle({:command, :newthread, msg}, context) do
@@ -43,6 +68,74 @@ defmodule Piano.Telegram.BotV2 do
         Logger.error("Failed to start new thread: #{inspect(reason)}")
         answer(context, "⚠️ Failed to start a new thread. Please try again.")
     end
+  end
+
+  def handle({:command, :profiles, _msg}, context) do
+    profiles = CodexConfig.profile_names() |> Enum.map(&Atom.to_string/1)
+    answer(context, "Available profiles:\n" <> Enum.join(profiles, "\n"))
+  end
+
+  def handle({:command, :profile, _msg}, context) do
+    answer(context, "Current profile: #{CodexConfig.current_profile!()}")
+  end
+
+  def handle({:command, :switchprofile, msg}, context) do
+    case parse_command_arg(msg.text) do
+      {:ok, profile_str} ->
+        available_strings = CodexConfig.profile_names() |> Enum.map(&Atom.to_string/1)
+
+        if profile_str in available_strings do
+          profile = String.to_atom(profile_str)
+          :ok = CodexConfig.set_current_profile!(profile)
+
+          answer(
+            context,
+            "✅ Profile set to #{profile}. Run /restartcodex to apply."
+          )
+        else
+          answer(
+            context,
+            "⚠️ Unknown profile: #{profile_str}\nUse /profiles to see available profiles."
+          )
+        end
+
+      :error ->
+        answer(context, "Usage: /switchprofile <name>")
+    end
+  end
+
+  def handle({:command, :restartcodex, _msg}, context) do
+    case CodexClient.restart() do
+      :ok ->
+        answer(context, "🔁 Codex restarted. Current profile: #{CodexConfig.current_profile!()}")
+
+      {:error, reason} ->
+        Logger.error("Failed to restart Codex: #{inspect(reason)}")
+        answer(context, "⚠️ Failed to restart Codex: #{inspect(reason)}")
+    end
+  end
+
+  def handle({:command, :codexlogin, msg}, context) do
+    # ChatGPT login is an interactive browser flow. We just return the authUrl,
+    # and Codex completes the login when the callback is received.
+    request_id = new_request_id()
+    :ok = RequestMap.put(request_id, %{type: :telegram_account_login_start, chat_id: msg.chat.id})
+    :ok = CodexClient.send_request("account/login/start", %{type: "chatgpt"}, request_id)
+    answer(context, "Starting ChatGPT login... (waiting for auth URL)")
+  end
+
+  def handle({:command, :codexaccount, msg}, context) do
+    request_id = new_request_id()
+    :ok = RequestMap.put(request_id, %{type: :telegram_account_read, chat_id: msg.chat.id})
+    :ok = CodexClient.send_request("account/read", %{refreshToken: false}, request_id)
+    answer(context, "Reading Codex account...")
+  end
+
+  def handle({:command, :codexlogout, msg}, context) do
+    request_id = new_request_id()
+    :ok = RequestMap.put(request_id, %{type: :telegram_account_logout, chat_id: msg.chat.id})
+    :ok = CodexClient.send_request("account/logout", %{}, request_id)
+    answer(context, "Logging out Codex...")
   end
 
   def handle({:command, _command, _msg}, context) do
@@ -63,4 +156,20 @@ defmodule Piano.Telegram.BotV2 do
   end
 
   def handle(_event, _context), do: :ok
+
+  defp parse_command_arg(text) when is_binary(text) do
+    # "/switchprofile foo" (possibly with "@botname")
+    case String.split(text, ~r/\s+/, parts: 2, trim: true) do
+      [_cmd, arg] when byte_size(arg) > 0 ->
+        # Only take the first token after the command.
+        {:ok, arg |> String.trim() |> String.split(~r/\s+/, parts: 2, trim: true) |> hd()}
+
+      _ ->
+        :error
+    end
+  end
+
+  defp new_request_id do
+    :erlang.unique_integer([:positive, :monotonic])
+  end
 end

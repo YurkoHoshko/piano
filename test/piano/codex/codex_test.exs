@@ -163,14 +163,20 @@ defmodule Piano.CodexTest do
 
   defp codex_config_toml(base_url) do
     """
+    sandbox_mode = "workspace-write"
+
     model = "gpt-4"
     model_provider = "openai"
-    sandbox_mode = "workspace-write"
 
     [model_providers.openai]
     name = "OpenAI"
     base_url = "#{base_url}"
+    env_key = "OPENAI_API_KEY"
     wire_api = "responses"
+
+    [profiles.replay]
+    model = "gpt-4"
+    model_provider = "openai"
 
     [sandbox_workspace_write]
     network_access = true

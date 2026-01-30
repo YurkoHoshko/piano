@@ -12,11 +12,10 @@ defmodule Piano.Codex.Client do
   alias Piano.Pipeline.CodexEventProducer
   alias Piano.Codex.RequestMap
   alias Piano.Core.Interaction
+  alias Piano.Codex.Config
   import Ash.Expr, only: [expr: 1]
   require Ash.Query
   require Piano.Surface
-
-  @default_codex_command "codex"
 
   defstruct [
     :port,
@@ -30,6 +29,25 @@ defmodule Piano.Codex.Client do
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
     GenServer.start_link(__MODULE__, opts, name: name)
+  end
+
+  @doc """
+  Restart the supervised Codex client (and its underlying `codex app-server` process).
+  """
+  def restart do
+    sup = Piano.Supervisor
+
+    if is_pid(Process.whereis(sup)) do
+      _ = Supervisor.terminate_child(sup, __MODULE__)
+
+      case Supervisor.restart_child(sup, __MODULE__) do
+        {:ok, _pid} -> :ok
+        {:ok, _pid, _info} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :supervisor_not_running}
+    end
   end
 
   @doc """
@@ -64,9 +82,8 @@ defmodule Piano.Codex.Client do
 
   @impl true
   def init(opts) do
-    codex_command = Keyword.get(opts, :codex_command, @default_codex_command)
-    codex_args =
-      Keyword.get(opts, :codex_args, Application.get_env(:piano, :codex_args, ["app-server"]))
+    codex_command = Keyword.get(opts, :codex_command, Config.codex_command!())
+    codex_args = Keyword.get(opts, :codex_args, Config.codex_args!())
     env = Keyword.get(opts, :env, [])
     auto_initialize = Keyword.get(opts, :auto_initialize, true)
     initialize_id = Keyword.get(opts, :initialize_id, 1)

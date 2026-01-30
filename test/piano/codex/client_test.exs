@@ -2,6 +2,7 @@ defmodule Piano.Codex.ClientTest do
   use ExUnit.Case, async: false
 
   alias Piano.Codex.Client
+  alias Piano.Codex.Config, as: CodexConfig
   alias Piano.TestHarness.CodexReplayHelpers
 
   @moduletag :codex
@@ -54,6 +55,35 @@ defmodule Piano.Codex.ClientTest do
 
       refute state.initialized
       assert state.initialize_id == 1
+    end
+  end
+
+  describe "CodexConfig" do
+    setup do
+      original = Application.get_env(:piano, CodexConfig)
+
+      on_exit(fn ->
+        Application.put_env(:piano, CodexConfig, original)
+      end)
+
+      :ok
+    end
+
+    test "requires config via fetch_env!" do
+      Application.delete_env(:piano, CodexConfig)
+      assert_raise ArgumentError, fn -> CodexConfig.current_profile!() end
+    end
+
+    test "builds explicit codex args from profile config" do
+      Application.put_env(:piano, CodexConfig,
+        codex_command: "codex",
+        current_profile: :fast,
+        allowed_profiles: [:fast]
+      )
+
+      args = CodexConfig.codex_args!()
+      assert hd(args) == "--profile"
+      assert Enum.at(args, 2) == "app-server"
     end
   end
 

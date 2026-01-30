@@ -20,5 +20,13 @@ config :piano, test_routes: true
 
 config :piano, :codex_replay_paths, []
 
+# Default to the local replay profile in tests; individual tests can override.
+#
+# Note: the Codex integration test overrides CODEX_HOME and OPENAI_BASE_URL.
+config :piano, Piano.Codex.Config,
+  codex_command: "codex",
+  current_profile: :replay,
+  allowed_profiles: [:replay]
+
 # Use mock Telegram API for tests
 config :piano, :telegram_api_impl, Piano.Telegram.API.Mock

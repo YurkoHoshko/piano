@@ -274,11 +274,92 @@ defmodule Piano.Pipeline.CodexEventConsumer do
         Logger.debug("Codex turn/start response mapped request_id=#{inspect(params["id"])} interaction_id=#{interaction_id}")
         handle_turn_start_response(interaction_id, params)
 
+      {:ok, %{type: :telegram_account_login_start, chat_id: chat_id}} ->
+        handle_telegram_account_login_start(chat_id, params)
+
+      {:ok, %{type: :telegram_account_read, chat_id: chat_id}} ->
+        handle_telegram_account_read(chat_id, params)
+
+      {:ok, %{type: :telegram_account_logout, chat_id: chat_id}} ->
+        handle_telegram_account_logout(chat_id, params)
+
+      {:ok, %{type: :startup_account_read}} ->
+        handle_startup_account_read(params)
+
       _ ->
         Logger.debug("Codex RPC response ignored (no mapping) request_id=#{inspect(params["id"])}")
         :ok
     end
   end
+
+  defp handle_startup_account_read(%{"result" => result}) do
+    Logger.info("Codex auth status: #{inspect(result)}")
+    :ok
+  end
+
+  defp handle_startup_account_read(%{"error" => error}) do
+    Logger.warning("Codex auth status check failed: #{inspect(error)}")
+    :ok
+  end
+
+  defp handle_startup_account_read(_params), do: :ok
+
+  defp handle_telegram_account_login_start(chat_id, %{"result" => result}) when is_integer(chat_id) do
+    auth_url = result["authUrl"]
+    login_id = result["loginId"]
+
+    cond do
+      is_binary(auth_url) ->
+        Piano.Telegram.API.send_message(
+          chat_id,
+          """
+          Open this URL in a browser to finish ChatGPT login:
+          #{auth_url}
+
+          loginId: #{inspect(login_id)}
+          After completing login, run /codexaccount to confirm.
+          """,
+          []
+        )
+
+        :ok
+
+      true ->
+        Piano.Telegram.API.send_message(chat_id, "Unexpected login response: #{inspect(result)}", [])
+        :ok
+    end
+  end
+
+  defp handle_telegram_account_login_start(chat_id, %{"error" => error}) when is_integer(chat_id) do
+    Piano.Telegram.API.send_message(chat_id, "Failed to start login: #{inspect(error)}", [])
+    :ok
+  end
+
+  defp handle_telegram_account_login_start(_chat_id, _params), do: :ok
+
+  defp handle_telegram_account_read(chat_id, %{"result" => result}) when is_integer(chat_id) do
+    Piano.Telegram.API.send_message(chat_id, "Codex account: #{inspect(result)}", [])
+    :ok
+  end
+
+  defp handle_telegram_account_read(chat_id, %{"error" => error}) when is_integer(chat_id) do
+    Piano.Telegram.API.send_message(chat_id, "Failed to read account: #{inspect(error)}", [])
+    :ok
+  end
+
+  defp handle_telegram_account_read(_chat_id, _params), do: :ok
+
+  defp handle_telegram_account_logout(chat_id, %{"result" => _result}) when is_integer(chat_id) do
+    Piano.Telegram.API.send_message(chat_id, "✅ Logged out. Run /codexaccount to confirm.", [])
+    :ok
+  end
+
+  defp handle_telegram_account_logout(chat_id, %{"error" => error}) when is_integer(chat_id) do
+    Piano.Telegram.API.send_message(chat_id, "Failed to logout: #{inspect(error)}", [])
+    :ok
+  end
+
+  defp handle_telegram_account_logout(_chat_id, _params), do: :ok
 
   defp handle_thread_start_response(thread_id, params, client) do
     codex_thread_id =
