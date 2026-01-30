@@ -18,12 +18,20 @@ defmodule Piano.Telegram.PromptTest do
       from: %{id: 42, username: "alice"}
     }
 
-    built = Prompt.build(msg, "Hello everyone", participants: 12)
-    assert built =~ "This is a group chat with multiple users."
-    assert built =~ "Chat: My Group"
+    built =
+      Prompt.build(msg, "Hello everyone",
+        participants: 12,
+        recent: [%{from: "@bob", text: "Earlier message"}]
+      )
+
+    assert built =~ "<chat_instructions>"
+    assert built =~ "You are being messaged from Telegram messenger."
+    assert built =~ "Chat name: My Group"
     assert built =~ "Participants: 12"
-    assert built =~ "From: @alice (telegram_user_id=42)"
-    assert String.ends_with?(built, "Message:\nHello everyone")
+    assert built =~ "<invoked_by_user>@alice (telegram_user_id=42)</invoked_by_user>"
+    assert built =~ "<chat_history>"
+    assert built =~ "<message from=\"@bob\">Earlier message</message>"
+    assert built =~ "\nHello everyone"
   end
 
   test "build/2 supports ExGram structs (no Access protocol)" do
@@ -33,9 +41,10 @@ defmodule Piano.Telegram.PromptTest do
     }
 
     built = Prompt.build(msg, "Yo")
-    assert built =~ "This is a group chat with multiple users."
-    assert built =~ "Chat: X"
-    assert built =~ "From: @bob (telegram_user_id=7)"
-    assert String.ends_with?(built, "Message:\nYo")
+    assert built =~ "<chat_instructions>"
+    assert built =~ "You are being messaged from Telegram messenger."
+    assert built =~ "Chat name: X"
+    assert built =~ "<invoked_by_user>@bob (telegram_user_id=7)</invoked_by_user>"
+    assert String.contains?(built, "\nYo\n")
   end
 end

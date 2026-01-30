@@ -10,6 +10,7 @@ defmodule Piano.Telegram.Handler do
   alias Piano.Core.Interaction
   alias Piano.Core.Thread
   alias Piano.Telegram.API
+  alias Piano.Telegram.ContextWindow
   alias Piano.Telegram.Surface, as: TelegramSurface
   alias Piano.Telegram.Prompt
   alias Piano.Codex.Client, as: CodexClient
@@ -37,14 +38,30 @@ defmodule Piano.Telegram.Handler do
       {:error, :invalid_chat_id}
     else
       chat_type = chat_type(msg)
+      _ = ContextWindow.record(msg, text)
 
       if chat_type in ["group", "supergroup"] and not tagged_for_bot?(text) do
         Logger.info("Telegram group message ignored (not tagged)", chat_id: chat_id, chat_type: chat_type)
         {:ok, :ignored_not_tagged}
       else
+        if chat_type in ["group", "supergroup"] do
+          _ = ContextWindow.mark_tagged(chat_id, message_id(msg))
+        end
+
         text = maybe_strip_bot_tag(text)
         participants = get_participant_count(chat_id)
-        prompt = Prompt.build(msg, text, participants: participants)
+        recent =
+          if chat_type in ["group", "supergroup"] do
+            ContextWindow.recent(chat_id,
+              mode: :since_last_tag_or_last_n,
+              limit: 15,
+              exclude_message_id: message_id(msg)
+            )
+          else
+            []
+          end
+
+        prompt = Prompt.build(msg, text, participants: participants, recent: recent)
 
         case maybe_handle_localhost_1455_link(chat_id, text) do
           :handled ->
@@ -177,6 +194,10 @@ defmodule Piano.Telegram.Handler do
       {:ok, count} when is_integer(count) -> count
       _ -> nil
     end
+  end
+
+  defp message_id(msg) when is_map(msg) do
+    Map.get(msg, :message_id) || Map.get(msg, "message_id")
   end
 
   defp maybe_handle_localhost_1455_link(chat_id, text) when is_integer(chat_id) and is_binary(text) do
