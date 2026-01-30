@@ -72,6 +72,11 @@ model = "glm-47-flash"
 model_provider = "llama_swap"
 model_reasoning_effort = "high"
 
+[profiles.gfq]
+model = "glm-47-flash-q"
+model_provider = "llama_swap"
+model_reasoning_effort = "high"
+
 [profiles.replay]
 model = "gpt-4"
 model_provider = "openai"
