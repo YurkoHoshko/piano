@@ -13,7 +13,7 @@ RUN apt-get update -y && apt-get install -y build-essential git curl \
     && apt-get clean && rm -f /var/lib/apt/lists/*_*
 
 # Prepare build dir
-WORKDIR /app
+WORKDIR /piano
 
 # Install hex + rebar
 RUN mix local.hex --force && \
@@ -68,24 +68,24 @@ ENV LANG en_US.UTF-8
 ENV LANGUAGE en_US:en
 ENV LC_ALL en_US.UTF-8
 
-WORKDIR /app
+WORKDIR /piano
 
 # Create a non-privileged user to run the app with passwordless sudo
 RUN useradd --create-home app && \
     echo "app ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-RUN mkdir -p /data && chown app:app /data
+RUN mkdir -p /data /piano && chown app:app /data /piano
 
 # Set runner ENV
 ENV MIX_ENV="prod"
 ENV DATABASE_PATH="/data/piano.db"
-ENV CODEX_HOME="/app/.codex"
+ENV CODEX_HOME="/piano/.codex"
 
 # Copy the release from builder
-COPY --from=builder --chown=app:app /app/_build/${MIX_ENV}/rel/piano ./
-COPY --chown=app:app .codex /app/.codex
+COPY --from=builder --chown=app:app /piano/_build/${MIX_ENV}/rel/piano ./
+COPY --chown=app:app .codex /piano/.codex
 
 USER app
 
 # If using an environment that doesn't automatically reap zombie processes,
 # you may want to add tini or another entry point that can do that
-CMD ["/app/bin/server"]
+CMD ["/piano/bin/server"]

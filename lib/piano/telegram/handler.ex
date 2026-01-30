@@ -9,7 +9,9 @@ defmodule Piano.Telegram.Handler do
 
   alias Piano.Core.Interaction
   alias Piano.Core.Thread
+  alias Piano.Telegram.API
   alias Piano.Telegram.Surface, as: TelegramSurface
+  alias Piano.Telegram.Prompt
   alias Piano.Codex.Client, as: CodexClient
   alias Piano.Codex.RequestMap
 
@@ -20,8 +22,60 @@ defmodule Piano.Telegram.Handler do
   2. Creates an Interaction with reply_to
   3. Starts the Codex turn
   """
-  @spec handle_message(integer(), String.t()) :: {:ok, term()} | {:error, term()}
-  def handle_message(chat_id, text) do
+  @spec handle_message(map(), String.t()) :: {:ok, term()} | {:error, term()}
+  def handle_message(msg, text) when is_map(msg) and is_binary(text) do
+    chat = Map.get(msg, :chat) || Map.get(msg, "chat")
+
+    chat_id =
+      if is_map(chat) do
+        Map.get(chat, :id) || Map.get(chat, "id")
+      else
+        nil
+      end
+
+    if not is_integer(chat_id) do
+      {:error, :invalid_chat_id}
+    else
+      chat_type = chat_type(msg)
+
+      if chat_type in ["group", "supergroup"] and not tagged_for_bot?(text) do
+        Logger.info("Telegram group message ignored (not tagged)", chat_id: chat_id, chat_type: chat_type)
+        {:ok, :ignored_not_tagged}
+      else
+        text = maybe_strip_bot_tag(text)
+        participants = get_participant_count(chat_id)
+        prompt = Prompt.build(msg, text, participants: participants)
+
+        case maybe_handle_localhost_1455_link(chat_id, text) do
+          :handled ->
+            {:ok, :localhost_1455_checked}
+
+          :not_handled ->
+            with {:ok, reply_to} <- TelegramSurface.send_placeholder(chat_id),
+                 {:ok, interaction} <- create_interaction(prompt, reply_to),
+                 {:ok, interaction} <- start_turn(interaction) do
+              Logger.info("Telegram message processed",
+                chat_id: chat_id,
+                interaction_id: interaction.id
+              )
+
+              {:ok, interaction}
+            else
+              {:error, reason} = error ->
+                Logger.error("Failed to handle Telegram message",
+                  chat_id: chat_id,
+                  error: inspect(reason)
+                )
+
+                error
+            end
+        end
+      end
+    end
+  end
+
+  def handle_message(chat_id, text) when is_integer(chat_id) and is_binary(text) do
+    # Backwards-compatible entrypoint.
     case maybe_handle_localhost_1455_link(chat_id, text) do
       :handled ->
         {:ok, :localhost_1455_checked}
@@ -79,6 +133,50 @@ defmodule Piano.Telegram.Handler do
 
   defp create_interaction(text, reply_to) do
     Ash.create(Interaction, %{original_message: text, reply_to: reply_to}, action: :create)
+  end
+
+  defp chat_type(msg) when is_map(msg) do
+    chat = Map.get(msg, :chat) || Map.get(msg, "chat")
+
+    if is_map(chat) do
+      Map.get(chat, :type) || Map.get(chat, "type")
+    else
+      nil
+    end
+  end
+
+  defp tagged_for_bot?(text) when is_binary(text) do
+    bot_username =
+      Application.get_env(:piano, :telegram, [])
+      |> Keyword.get(:bot_username)
+
+    if is_binary(bot_username) and bot_username != "" do
+      String.contains?(String.downcase(text), "@" <> String.downcase(bot_username))
+    else
+      Logger.warning("TELEGRAM_BOT_USERNAME not set; group tag gating disabled")
+      true
+    end
+  end
+
+  defp maybe_strip_bot_tag(text) when is_binary(text) do
+    bot_username =
+      Application.get_env(:piano, :telegram, [])
+      |> Keyword.get(:bot_username)
+
+    if is_binary(bot_username) and bot_username != "" do
+      text
+      |> String.replace(~r/@#{Regex.escape(bot_username)}\b/i, "")
+      |> String.trim()
+    else
+      text
+    end
+  end
+
+  defp get_participant_count(chat_id) when is_integer(chat_id) do
+    case API.get_chat_member_count(chat_id) do
+      {:ok, count} when is_integer(count) -> count
+      _ -> nil
+    end
   end
 
   defp maybe_handle_localhost_1455_link(chat_id, text) when is_integer(chat_id) and is_binary(text) do

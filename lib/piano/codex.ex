@@ -49,7 +49,7 @@ defmodule Piano.Codex do
   def start_thread(%Thread{} = thread, client \\ Client) do
     request_id = request_id()
     :ok = RequestMap.put(request_id, %{type: :thread_start, thread_id: thread.id, client: client})
-    :ok = Client.send_request(client, "thread/start", %{}, request_id)
+    :ok = Client.send_request(client, "thread/start", %{cwd: Piano.Codex.Config.codex_cwd()}, request_id)
     {:ok, request_id}
   end
 

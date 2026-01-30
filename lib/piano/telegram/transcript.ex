@@ -81,12 +81,13 @@ defmodule Piano.Telegram.Transcript do
       |> Enum.reject(&is_nil/1)
       |> Enum.join("\n\n")
 
-    """
-    ## Turn #{idx}
-    _Turn ID: #{turn_id}_
-
-    #{items_text}
-    """
+    [
+      "## Turn #{idx}",
+      "_Turn ID: #{turn_id}_",
+      "",
+      if(items_text == "", do: "_No items in this turn._", else: items_text)
+    ]
+    |> Enum.join("\n")
   end
 
   # Format individual items based on their type
@@ -137,12 +138,18 @@ defmodule Piano.Telegram.Transcript do
     |> Enum.map(fn
       %{"type" => "text", "text" => text} -> text
       %{"type" => "outputText", "text" => text} -> text
+      %{"type" => "output_text", "text" => text} -> text
+      %{"type" => "inputText", "text" => text} -> text
+      %{"type" => "input_text", "text" => text} -> text
+      %{"type" => type, "text" => text} when is_binary(type) and is_binary(text) -> text
       _ -> nil
     end)
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")
   end
 
+  defp extract_text_content(%{"text" => text}) when is_binary(text), do: text
+  defp extract_text_content(%{text: text}) when is_binary(text), do: text
   defp extract_text_content(content) when is_binary(content), do: content
   defp extract_text_content(_), do: ""
 

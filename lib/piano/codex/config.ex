@@ -54,6 +54,25 @@ defmodule Piano.Codex.Config do
     config!() |> Keyword.fetch!(:allowed_profiles) |> Enum.sort()
   end
 
+  @doc """
+  Working directory for the `codex app-server` process.
+
+  Prefer the directory containing `CODEX_HOME` when it points at a `.codex` folder.
+  """
+  def codex_cwd do
+    case System.get_env("CODEX_HOME") do
+      nil ->
+        File.cwd!()
+
+      home ->
+        if String.ends_with?(home, "/.codex") do
+          Path.dirname(home)
+        else
+          File.cwd!()
+        end
+    end
+  end
+
   defp config! do
     Application.fetch_env!(:piano, __MODULE__)
   end

@@ -91,17 +91,20 @@ defmodule Piano.Codex.Client do
     Logger.info("Starting Codex: #{codex_command} #{Enum.join(codex_args, " ")}")
 
     env = build_port_env(env_overrides)
+    codex_cwd = codex_cwd_from_env(env)
 
     Logger.info(
       "Codex environment codex_home=#{inspect(env_value(env, "CODEX_HOME"))} openai_base_url=#{inspect(env_value(env, "OPENAI_BASE_URL"))} openai_api_key?=#{env_value(env, "OPENAI_API_KEY") != nil}"
     )
+    Logger.info("Codex cwd #{codex_cwd}")
 
     port_opts = [
       :binary,
       :exit_status,
       :use_stdio,
       {:line, 1_000_000},
-      {:env, env}
+      {:env, env},
+      {:cd, String.to_charlist(codex_cwd)}
     ]
 
     port = Port.open({:spawn_executable, find_executable(codex_command)}, [
@@ -302,6 +305,20 @@ defmodule Piano.Codex.Client do
     case Enum.find(env, fn {ek, _} -> ek == k end) do
       {_, v} -> List.to_string(v)
       nil -> nil
+    end
+  end
+
+  defp codex_cwd_from_env(env) when is_list(env) do
+    case env_value(env, "CODEX_HOME") do
+      home when is_binary(home) ->
+        if String.ends_with?(home, "/.codex") do
+          Path.dirname(home)
+        else
+          File.cwd!()
+        end
+
+      _ ->
+        File.cwd!()
     end
   end
 

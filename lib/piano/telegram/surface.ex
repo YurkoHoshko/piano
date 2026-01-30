@@ -81,8 +81,10 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
   alias Piano.Core.InteractionItem
   require Ash.Query
 
-  def on_turn_started(_surface, _interaction, _params) do
-    {:ok, :noop}
+  @telegram_output_preview_max 500
+
+  def on_turn_started(surface, _interaction, _params) do
+    TelegramSurface.update_message(surface, "⏳ Processing…\n\nstarted")
   end
 
   def on_turn_completed(surface, interaction, _params) do
@@ -163,22 +165,31 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
 
   defp escape_html(other), do: escape_html(to_string(other))
 
-  def on_item_started(_surface, _interaction, _params) do
-    {:ok, :noop}
+  def on_item_started(surface, _interaction, params) do
+    case summarize_item_event(params, :started) do
+      nil ->
+        {:ok, :noop}
+
+      {line, output} ->
+        TelegramSurface.update_message(surface, progress_message(line, output))
+    end
   end
 
-  def on_item_completed(_surface, _interaction, _params) do
-    {:ok, :noop}
+  def on_item_completed(surface, _interaction, params) do
+    case summarize_item_event(params, :completed) do
+      nil ->
+        {:ok, :noop}
+
+      {line, output} ->
+        TelegramSurface.update_message(surface, progress_message(line, output))
+    end
   end
 
   def on_agent_message_delta(surface, _interaction, params) do
-    case get_in(params, ["item", "text"]) do
-      text when is_binary(text) and text != "" ->
-        TelegramSurface.update_message(surface, text)
-
-      _ ->
-        {:ok, :noop}
-    end
+    # Keep pending updates focused on milestones/tool output (no streaming spam).
+    _ = surface
+    _ = params
+    {:ok, :noop}
   end
 
   def on_approval_required(surface, _interaction, _params) do
@@ -188,4 +199,153 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
   def send_thread_transcript(surface, thread_data) do
     Transcript.send_transcript(surface.chat_id, thread_data)
   end
+
+  defp summarize_item_event(params, phase) when phase in [:started, :completed] do
+    item = params["item"] || %{}
+    type = item["type"] || params["type"]
+
+    case type do
+      "reasoning" ->
+        text =
+          get_in(params, ["item", "text"]) ||
+            get_in(params, ["item", "summary"]) ||
+            get_in(params, ["item", "content"])
+
+        status_suffix = status_suffix(params, phase)
+        {"thinking#{status_suffix}", coerce_text(text)}
+
+      "commandExecution" ->
+        cmd =
+          get_in(params, ["item", "command"]) ||
+            get_in(params, ["item", "input", "command"]) ||
+            get_in(params, ["item", "payload", "command"])
+
+        cmd_str =
+          cond do
+            is_list(cmd) -> Enum.join(cmd, " ")
+            is_binary(cmd) -> cmd
+            true -> nil
+          end
+
+        output = extract_item_output(params)
+        base = if cmd_str, do: "$ #{truncate_line(cmd_str, 120)}", else: "command"
+        {base <> status_suffix(params, phase), output}
+
+      "fileChange" ->
+        path =
+          get_in(params, ["item", "path"]) ||
+            get_in(params, ["item", "input", "path"]) ||
+            get_in(params, ["item", "payload", "path"])
+
+        output = extract_item_output(params)
+        base = if is_binary(path), do: "file #{truncate_line(path, 160)}", else: "file change"
+        {base <> status_suffix(params, phase), output}
+
+      "mcpToolCall" ->
+        tool =
+          get_in(params, ["item", "tool"]) ||
+            get_in(params, ["item", "name"]) ||
+            get_in(params, ["item", "payload", "tool"]) ||
+            get_in(params, ["item", "payload", "name"])
+
+        output = extract_item_output(params)
+        base = if tool, do: "tool #{truncate_line(to_string(tool), 80)}", else: "tool call"
+        {base <> status_suffix(params, phase), output}
+
+      "webSearch" ->
+        query =
+          get_in(params, ["item", "query"]) ||
+            get_in(params, ["item", "input", "query"]) ||
+            get_in(params, ["item", "payload", "query"])
+
+        output = extract_item_output(params)
+        base = if is_binary(query), do: "search #{truncate_line(query, 80)}", else: "search"
+        {base <> status_suffix(params, phase), output}
+
+      _ ->
+        nil
+    end
+  end
+
+  defp status_suffix(params, phase) do
+    if phase == :completed do
+      status =
+        get_in(params, ["item", "status"]) ||
+          params["status"] ||
+          get_in(params, ["result", "status"])
+
+      cond do
+        status in ["failed", "error"] -> " (failed)"
+        status in ["declined"] -> " (declined)"
+        status in ["completed", "success", "ok"] -> " (done)"
+        is_binary(status) -> " (#{status})"
+        Map.has_key?(params, "error") -> " (failed)"
+        true -> " (done)"
+      end
+    else
+      ""
+    end
+  end
+
+  defp truncate_line(text, max_len) when is_binary(text) and is_integer(max_len) do
+    text = String.trim(text)
+
+    if String.length(text) <= max_len do
+      text
+    else
+      String.slice(text, 0, max_len - 1) <> "…"
+    end
+  end
+
+  defp extract_item_output(params) do
+    output =
+      get_in(params, ["item", "output"]) ||
+        get_in(params, ["item", "result"]) ||
+        get_in(params, ["item", "stdout"]) ||
+        get_in(params, ["item", "stderr"]) ||
+        get_in(params, ["item", "message"]) ||
+        get_in(params, ["result", "output"]) ||
+        get_in(params, ["result"]) ||
+        get_in(params, ["output"])
+
+    coerce_text(output)
+  end
+
+  defp coerce_text(nil), do: ""
+
+  defp coerce_text(text) when is_binary(text), do: text
+
+  defp coerce_text(%{"text" => text}) when is_binary(text), do: text
+  defp coerce_text(%{text: text}) when is_binary(text), do: text
+
+  defp coerce_text(other) when is_map(other) or is_list(other) do
+    inspect(other, limit: 50, printable_limit: 800)
+  end
+
+  defp coerce_text(other), do: to_string(other)
+
+  defp progress_message(line, output) do
+    output =
+      output
+      |> String.trim()
+      |> maybe_truncate_head(@telegram_output_preview_max)
+
+    parts =
+      ["⏳ Processing…", String.trim(line)]
+      |> maybe_add_section(output)
+
+    Enum.join(parts, "\n\n")
+  end
+
+  defp maybe_truncate_head(text, max_len) when is_binary(text) and is_integer(max_len) do
+    if String.length(text) <= max_len do
+      text
+    else
+      String.slice(text, 0, max_len - 1) <> "…"
+    end
+  end
+
+  defp maybe_add_section(parts, ""), do: parts
+  defp maybe_add_section(parts, nil), do: parts
+  defp maybe_add_section(parts, section) when is_binary(section), do: parts ++ [section]
 end

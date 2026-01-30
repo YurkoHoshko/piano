@@ -39,9 +39,11 @@ if config_env() == :prod do
 
   # Telegram bot configuration
   telegram_token = System.get_env("TELEGRAM_BOT_TOKEN")
+  telegram_username = System.get_env("TELEGRAM_BOT_USERNAME")
 
   config :piano, :telegram,
     bot_token: telegram_token,
+    bot_username: telegram_username,
     enabled: telegram_token != nil
 
   config :ex_gram, token: telegram_token

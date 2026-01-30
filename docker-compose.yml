@@ -10,11 +10,12 @@ services:
       - PHX_HOST=localhost
       - PORT=4000
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - CODEX_HOME=/app/.codex
+      - TELEGRAM_BOT_USERNAME=Naynaynay1234bot
+      - CODEX_HOME=/piano/.codex
     volumes:
       - piano_data:/data
-      - ./.agents:/app/.agents:ro
-      - ./.codex:/app/.codex
+      - ./.agents:/piano/.agents:ro
+      - ./.codex:/piano/.codex
     restart: unless-stopped
     depends_on:
       - llama-swap

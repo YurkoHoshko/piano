@@ -62,6 +62,7 @@ defmodule Piano.Telegram.BotV2 do
   end
 
   def handle({:command, :newthread, msg}, context) do
+    log_inbound(:command, msg, "/newthread")
     chat_id = msg.chat.id
 
     case Handler.force_new_thread(chat_id) do
@@ -84,6 +85,7 @@ defmodule Piano.Telegram.BotV2 do
   end
 
   def handle({:command, :switchprofile, msg}, context) do
+    log_inbound(:command, msg, "/switchprofile")
     # ExGram passes just the argument in msg.text (e.g., "fast" not "/switchprofile fast")
     profile_str = (msg.text || "") |> String.trim()
 
@@ -122,6 +124,7 @@ defmodule Piano.Telegram.BotV2 do
   end
 
   def handle({:command, :codexlogin, msg}, context) do
+    log_inbound(:command, msg, "/codexlogin")
     # ChatGPT login is an interactive browser flow. We just return the authUrl,
     # and Codex completes the login when the callback is received.
     request_id = new_request_id()
@@ -131,6 +134,7 @@ defmodule Piano.Telegram.BotV2 do
   end
 
   def handle({:command, :codexaccount, msg}, context) do
+    log_inbound(:command, msg, "/codexaccount")
     request_id = new_request_id()
     :ok = RequestMap.put(request_id, %{type: :telegram_account_read, chat_id: msg.chat.id})
     :ok = CodexClient.send_request("account/read", %{refreshToken: false}, request_id)
@@ -138,6 +142,7 @@ defmodule Piano.Telegram.BotV2 do
   end
 
   def handle({:command, :codexlogout, msg}, context) do
+    log_inbound(:command, msg, "/codexlogout")
     request_id = new_request_id()
     :ok = RequestMap.put(request_id, %{type: :telegram_account_logout, chat_id: msg.chat.id})
     :ok = CodexClient.send_request("account/logout", %{}, request_id)
@@ -145,6 +150,7 @@ defmodule Piano.Telegram.BotV2 do
   end
 
   def handle({:command, :transcript, msg}, context) do
+    log_inbound(:command, msg, "/transcript")
     chat_id = msg.chat.id
 
     case Handler.get_thread_transcript(chat_id) do
@@ -169,9 +175,8 @@ defmodule Piano.Telegram.BotV2 do
   end
 
   def handle({:text, text, msg}, _context) do
-    chat_id = msg.chat.id
-
-    case Handler.handle_message(chat_id, text) do
+    log_inbound(:text, msg, text)
+    case Handler.handle_message(msg, text) do
       {:ok, _interaction} ->
         :ok
 
@@ -181,9 +186,47 @@ defmodule Piano.Telegram.BotV2 do
     end
   end
 
-  def handle(_event, _context), do: :ok
+  def handle(event, _context) do
+    Logger.info("Telegram event ignored", event: summarize_event(event))
+    :ok
+  end
 
   defp new_request_id do
     :erlang.unique_integer([:positive, :monotonic])
   end
+
+  defp log_inbound(kind, msg, text_or_cmd) do
+    chat = Map.get(msg, :chat) || Map.get(msg, "chat")
+    from = Map.get(msg, :from) || Map.get(msg, "from")
+
+    chat_id = map_get(chat, :id)
+    chat_type = map_get(chat, :type)
+    from_id = map_get(from, :id)
+    username = map_get(from, :username)
+
+    preview =
+      text_or_cmd
+      |> to_string()
+      |> String.trim()
+      |> String.slice(0, 120)
+
+    Logger.info("Telegram inbound",
+      kind: kind,
+      chat_id: chat_id,
+      chat_type: chat_type,
+      from_id: from_id,
+      username: username,
+      preview: preview
+    )
+  end
+
+  defp map_get(nil, _key), do: nil
+
+  defp map_get(data, key) when is_map(data) and is_atom(key) do
+    Map.get(data, key) || Map.get(data, Atom.to_string(key))
+  end
+
+  defp summarize_event({:text, _text, _msg}), do: :text
+  defp summarize_event({:command, cmd, _msg}), do: {:command, cmd}
+  defp summarize_event(other), do: other
 end

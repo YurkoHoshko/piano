@@ -9,6 +9,7 @@ defmodule Piano.Telegram.API do
               {:ok, any()} | {:error, any()}
   @callback answer_callback_query(String.t(), keyword()) :: {:ok, any()} | {:error, any()}
   @callback send_document(integer(), any(), keyword()) :: {:ok, any()} | {:error, any()}
+  @callback get_chat_member_count(integer(), keyword()) :: {:ok, integer()} | {:error, any()}
 
   @spec send_message(integer(), String.t(), keyword()) :: {:ok, any()} | {:error, any()}
   def send_message(chat_id, text, opts \\ []) do
@@ -34,6 +35,11 @@ defmodule Piano.Telegram.API do
   @spec send_document(integer(), any(), keyword()) :: {:ok, any()} | {:error, any()}
   def send_document(chat_id, document, opts \\ []) do
     impl().send_document(chat_id, document, opts)
+  end
+
+  @spec get_chat_member_count(integer(), keyword()) :: {:ok, integer()} | {:error, any()}
+  def get_chat_member_count(chat_id, opts \\ []) do
+    impl().get_chat_member_count(chat_id, opts)
   end
 
   defp impl, do: Application.get_env(:piano, :telegram_api_impl, Piano.Telegram.API.Impl)
@@ -66,5 +72,10 @@ defmodule Piano.Telegram.API.Impl do
   @impl true
   def send_document(chat_id, document, opts) do
     ExGram.send_document(chat_id, document, opts)
+  end
+
+  @impl true
+  def get_chat_member_count(chat_id, _opts) do
+    ExGram.get_chat_member_count(chat_id)
   end
 end

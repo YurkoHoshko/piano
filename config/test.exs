@@ -30,3 +30,8 @@ config :piano, Piano.Codex.Config,
 
 # Use mock Telegram API for tests
 config :piano, :telegram_api_impl, Piano.Telegram.API.Mock
+
+config :piano, :telegram,
+  bot_token: "test",
+  bot_username: "piano_bot",
+  enabled: true
