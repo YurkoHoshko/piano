@@ -1,13 +1,12 @@
 defmodule Piano.Telegram.ContextWindow do
-  use GenServer
+  use Agent
 
   @moduledoc """
-  GenServer keeping a small in-memory ETS window of recent Telegram messages per chat.
+  Agent keeping a small in-memory queue of recent Telegram messages per chat.
+  Uses Erlang's :queue for efficient O(1) append and drop operations.
   """
 
-  @table :piano_telegram_context_window
   @default_window_size 200
-  @default_max_message_len 280
 
   @type context_msg :: %{
           message_id: integer() | nil,
@@ -16,81 +15,72 @@ defmodule Piano.Telegram.ContextWindow do
         }
 
   def start_link(_opts) do
-    GenServer.start_link(__MODULE__, [], name: __MODULE__)
-  end
-
-  @impl true
-  def init(_args) do
-    :ets.new(@table, [:named_table, :public, read_concurrency: true, write_concurrency: true])
-    {:ok, %{}}
+    Agent.start_link(fn -> %{} end, name: __MODULE__)
   end
 
   @spec record(map(), String.t()) :: :ok
-  def record(msg, text), do: GenServer.cast(__MODULE__, {:record, msg, text})
-
-  @spec mark_tagged(integer(), integer() | nil) :: :ok
-  def mark_tagged(chat_id, message_id), do: GenServer.cast(__MODULE__, {:mark_tagged, chat_id, message_id})
-
-  @spec recent(integer(), keyword()) :: [context_msg]
-  def recent(chat_id, opts \\ []), do: GenServer.call(__MODULE__, {:recent, chat_id, opts}, 5_000)
-
-  @impl true
-  def handle_cast({:record, msg, text}, state) do
-    ensure_table!()
+  def record(msg, text) do
     chat_id = dig(msg, [:chat, :id])
     chat_type = dig(msg, [:chat, :type])
 
     if is_integer(chat_id) and chat_type in ["group", "supergroup"] do
       window_size = Application.get_env(:piano, :telegram_context_window_size, @default_window_size)
-      max_len = Application.get_env(:piano, :telegram_context_max_message_len, @default_max_message_len)
 
       entry = %{
         message_id: dig(msg, [:message_id]),
         from: sender_tag(msg),
-        text: text |> String.trim() |> truncate(max_len)
+        text: String.trim(text)
       }
 
-      key = chat_id
-      current = get_state(key)
-      list = (current.messages ++ [entry]) |> Enum.take(-window_size)
-      require Logger
-      Logger.warn("inserting #{inspect(list)} into storage")
-      :ets.insert(@table, {key, %{current | messages: list}})
+      Agent.update(__MODULE__, fn state ->
+        current = Map.get(state, chat_id, %{queue: :queue.new(), last_tagged_message_id: nil})
+        new_queue = :queue.in(entry, current.queue)
+        
+        # Trim from front if exceeds window size
+        trimmed_queue = 
+          if :queue.len(new_queue) > window_size do
+            {_, q} = :queue.out(new_queue)
+            q
+          else
+            new_queue
+          end
+        
+        Map.put(state, chat_id, %{current | queue: trimmed_queue})
+      end)
     end
 
-    {:noreply, state}
+    :ok
   end
 
-  @impl true
-  def handle_cast({:mark_tagged, chat_id, message_id}, state) do
-    ensure_table!()
-    current = get_state(chat_id)
+  @spec mark_tagged(integer(), integer() | nil) :: :ok
+  def mark_tagged(chat_id, message_id) do
     if is_integer(message_id) do
-      :ets.insert(@table, {chat_id, %{current | last_tagged_message_id: message_id}})
+      Agent.update(__MODULE__, fn state ->
+        current = Map.get(state, chat_id, %{queue: :queue.new(), last_tagged_message_id: nil})
+        Map.put(state, chat_id, %{current | last_tagged_message_id: message_id})
+      end)
     end
-    {:noreply, state}
+
+    :ok
   end
 
-  @impl true
-  def handle_call({:recent, chat_id, opts}, _from, state) do
+  @spec recent(integer(), keyword()) :: [context_msg]
+  def recent(chat_id, opts \\ []) do
     limit = Keyword.get(opts, :limit, 10)
     exclude_message_id = Keyword.get(opts, :exclude_message_id)
     mode = Keyword.get(opts, :mode, :last_n)
 
-    current = get_state(chat_id)
-    list = current.messages
+    Agent.get(__MODULE__, fn state ->
+      current = Map.get(state, chat_id, %{queue: :queue.new(), last_tagged_message_id: nil})
+      list = :queue.to_list(current.queue)
 
-    require Logger
-    Logger.warning(inspect(list))
+      list =
+        if is_integer(exclude_message_id) do
+          Enum.reject(list, fn m -> m.message_id == exclude_message_id end)
+        else
+          list
+        end
 
-    list =
-      if is_integer(exclude_message_id) do
-        Enum.reject(list, fn m -> m.message_id == exclude_message_id end)
-      else
-        list
-      end
-
-    result =
       case mode do
         :since_last_tag_or_last_n ->
           after_last_tag =
@@ -104,25 +94,8 @@ defmodule Piano.Telegram.ContextWindow do
         _ ->
           Enum.take(list, -limit)
       end
-
-    {:reply, result, state}
+    end)
   end
-
-  # Private helpers unchanged
-  defp ensure_table!, do: :ok  # Already ensured in init
-
-  defp get_state(chat_id) do
-    case :ets.lookup(@table, chat_id) do
-      [{^chat_id, %{messages: _} = state}] -> state
-      [{^chat_id, list}] when is_list(list) -> %{messages: list, last_tagged_message_id: nil}
-      _ -> %{messages: [], last_tagged_message_id: nil}
-    end
-  end
-
-  defp truncate(text, max_len) when byte_size(text) > max_len do
-    String.slice(text, 0, max_len - 1) <> "…"
-  end
-  defp truncate(text, _), do: text
 
   defp sender_tag(msg) do
     username = dig(msg, [:from, :username])

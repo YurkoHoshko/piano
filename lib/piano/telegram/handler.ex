@@ -16,6 +16,7 @@ defmodule Piano.Telegram.Handler do
   alias Piano.Codex.Client, as: CodexClient
   alias Piano.Codex.RequestMap
 
+  
   @doc """
   Handle an incoming Telegram text message.
 
@@ -201,50 +202,38 @@ defmodule Piano.Telegram.Handler do
   end
 
   defp maybe_handle_localhost_1455_link(chat_id, text) when is_integer(chat_id) and is_binary(text) do
-    url =
-      text
-      |> String.trim()
-      |> ensure_url_scheme()
+    url = String.trim(text)
 
-    if is_binary(url) do
-      case URI.parse(url) do
-        %URI{scheme: scheme, host: host, port: 1455}
-        when scheme in ["http", "https"] and host in ["localhost", "127.0.0.1", "::1"] ->
-          Logger.info("Telegram localhost:1455 link detected", chat_id: chat_id)
+    if String.starts_with?(url, "localhost") do
+      Logger.info("Telegram localhost link detected", chat_id: chat_id)
 
-          request_url = rewrite_localhost_to_ipv4(url)
+      result = check_with_curl(ensure_url_scheme(url))
 
-          result = check_with_curl(request_url)
+      _ =
+        case result do
+          {:ok, status} ->
+            Piano.Telegram.API.send_message(
+              chat_id,
+              "✅ localhost:1455 reachable (HTTP #{status}). No need to retry.",
+              []
+            )
 
-          _ =
-            case result do
-              {:ok, status} ->
-                Piano.Telegram.API.send_message(
-                  chat_id,
-                  "✅ localhost:1455 reachable (HTTP #{status}). No need to retry.",
-                  []
-                )
+          {:not_ok, status} ->
+            Piano.Telegram.API.send_message(
+              chat_id,
+              "⚠️ localhost:1455 responded (HTTP #{status}). Retrying won't help unless the service changes.",
+              []
+            )
 
-              {:not_ok, status} ->
-                Piano.Telegram.API.send_message(
-                  chat_id,
-                  "⚠️ localhost:1455 responded (HTTP #{status}). Retrying won't help unless the service changes.",
-                  []
-                )
+          {:error, reason} ->
+            Piano.Telegram.API.send_message(
+              chat_id,
+              "❌ Can't reach localhost:1455 from the server (#{inspect(reason)}). Check that the service is running on port 1455.",
+              []
+            )
+        end
 
-              {:error, reason} ->
-                Piano.Telegram.API.send_message(
-                  chat_id,
-                  "❌ Can't reach localhost:1455 from the server (#{inspect(reason)}). Check that the service is running on port 1455.",
-                  []
-                )
-            end
-
-          :handled
-
-        _ ->
-          :not_handled
-      end
+      :handled
     else
       :not_handled
     end
@@ -257,16 +246,6 @@ defmodule Piano.Telegram.Handler do
       url
     else
       "http://" <> url
-    end
-  end
-
-  # `localhost` can resolve to IPv6 first (`::1`). In our docker setup, port 1455
-  # is commonly bound on IPv4 loopback only, so force IPv4 to match `curl` behavior.
-  defp rewrite_localhost_to_ipv4(url) when is_binary(url) do
-    case URI.parse(url) do
-      %URI{host: "localhost"} = uri -> uri |> Map.put(:host, "127.0.0.1") |> URI.to_string()
-      %URI{host: "::1"} = uri -> uri |> Map.put(:host, "127.0.0.1") |> URI.to_string()
-      _ -> url
     end
   end
 

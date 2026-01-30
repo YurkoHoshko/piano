@@ -5,11 +5,9 @@ defmodule Piano.Telegram.ContextWindowTest do
 
   setup do
     Application.put_env(:piano, :telegram_context_window_size, 50)
-
-    case :ets.whereis(:piano_telegram_context_window) do
-      :undefined -> :ok
-      _ -> :ets.delete_all_objects(:piano_telegram_context_window)
-    end
+    
+    # Reset agent state between tests
+    Agent.update(Piano.Telegram.ContextWindow, fn _ -> %{} end)
 
     :ok
   end

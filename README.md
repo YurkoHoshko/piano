@@ -1,6 +1,6 @@
 # Piano
 
-**TODO: Add description**
+A multi-agent chat system built with Elixir and Phoenix that integrates with OpenAI's Codex CLI to provide AI-powered assistance across multiple channels including Telegram and web interfaces.
 
 ## Installation
 
