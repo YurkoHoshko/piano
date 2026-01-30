@@ -47,6 +47,7 @@ defmodule Piano.Application do
       Logger.info("Telegram bot enabled (polling)")
 
       [
+        Piano.Telegram.ContextWindow,
         ExGram,
         {Piano.Telegram.BotV2, [method: :polling, token: token]}
       ]
