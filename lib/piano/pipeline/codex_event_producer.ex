@@ -7,8 +7,11 @@ defmodule Piano.Pipeline.CodexEventProducer do
   """
 
   use GenStage
-  require Logger
+
   alias Broadway.Topology
+  alias Piano.Pipeline.CodexEventPipeline
+
+  require Logger
 
   @typedoc "An event can be a parsed struct or RPC response"
   @type event :: %{
@@ -25,7 +28,7 @@ defmodule Piano.Pipeline.CodexEventProducer do
 
   @doc """
   Enqueue an event or RPC response to be processed.
-  
+
   For events: %{type: :event, event: %Events.TurnStarted{}, partition_key: "..."}
   For RPC: %{type: :rpc_response, payload: %{...}, partition_key: "..."}
   """
@@ -78,14 +81,14 @@ defmodule Piano.Pipeline.CodexEventProducer do
   end
 
   defp producer_names do
-    Topology.producer_names(Piano.Pipeline.CodexEventPipeline)
+    Topology.producer_names(CodexEventPipeline)
   catch
     :exit, _ ->
       Logger.warning("CodexEventPipeline not running; attempting to start")
 
-      case Piano.Pipeline.CodexEventPipeline.start_link() do
-        {:ok, _pid} -> Topology.producer_names(Piano.Pipeline.CodexEventPipeline)
-        {:error, {:already_started, _pid}} -> Topology.producer_names(Piano.Pipeline.CodexEventPipeline)
+      case CodexEventPipeline.start_link() do
+        {:ok, _pid} -> Topology.producer_names(CodexEventPipeline)
+        {:error, {:already_started, _pid}} -> Topology.producer_names(CodexEventPipeline)
         {:error, _reason} -> []
       end
   end

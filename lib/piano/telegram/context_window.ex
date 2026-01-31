@@ -24,7 +24,8 @@ defmodule Piano.Telegram.ContextWindow do
     chat_type = dig(msg, [:chat, :type])
 
     if is_integer(chat_id) and chat_type in ["group", "supergroup"] do
-      window_size = Application.get_env(:piano, :telegram_context_window_size, @default_window_size)
+      window_size =
+        Application.get_env(:piano, :telegram_context_window_size, @default_window_size)
 
       entry = %{
         message_id: dig(msg, [:message_id]),
@@ -35,16 +36,16 @@ defmodule Piano.Telegram.ContextWindow do
       Agent.update(__MODULE__, fn state ->
         current = Map.get(state, chat_id, %{queue: :queue.new(), last_tagged_message_id: nil})
         new_queue = :queue.in(entry, current.queue)
-        
+
         # Trim from front if exceeds window size
-        trimmed_queue = 
+        trimmed_queue =
           if :queue.len(new_queue) > window_size do
             {_, q} = :queue.out(new_queue)
             q
           else
             new_queue
           end
-        
+
         Map.put(state, chat_id, %{current | queue: trimmed_queue})
       end)
     end
@@ -85,10 +86,13 @@ defmodule Piano.Telegram.ContextWindow do
         :since_last_tag_or_last_n ->
           after_last_tag =
             if is_integer(current.last_tagged_message_id) do
-              Enum.filter(list, fn %{message_id: mid} when is_integer(mid) -> mid > current.last_tagged_message_id end)
+              Enum.filter(list, fn %{message_id: mid} when is_integer(mid) ->
+                mid > current.last_tagged_message_id
+              end)
             else
               []
             end
+
           if after_last_tag != [], do: after_last_tag, else: Enum.take(list, -limit)
 
         _ ->
@@ -112,9 +116,11 @@ defmodule Piano.Telegram.ContextWindow do
 
   defp dig(data, []), do: data
   defp dig(nil, _), do: nil
+
   defp dig(data, [key | rest]) when is_map(data) do
     value = Map.get(data, key) || Map.get(data, to_string(key))
     dig(value, rest)
   end
+
   defp dig(_, _), do: nil
 end

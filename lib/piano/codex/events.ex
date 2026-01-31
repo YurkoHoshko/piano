@@ -827,7 +827,6 @@ defmodule Piano.Codex.Events do
   end
 
   defp normalize_int(_), do: nil
-
 end
 
 # ============================================================================
@@ -849,9 +848,11 @@ defimpl Piano.Transcript.Serializer, for: Piano.Codex.Events.ItemCompleted do
   end
 
   def to_transcript(%{type: :agent_message, item: item, result: result}) when is_map(item) do
-    text = item["text"] || item["message"] || 
-           (is_map(result) && (result["text"] || result["message"])) || 
-           ""
+    text =
+      item["text"] || item["message"] ||
+        (is_map(result) && (result["text"] || result["message"])) ||
+        ""
+
     if text != "", do: "🤖 **Assistant:**\n#{text}"
   end
 

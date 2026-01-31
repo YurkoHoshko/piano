@@ -85,7 +85,8 @@ defmodule Piano.Codex.Notifications do
           turn_id: event.turn_id
         ]
 
-        message = "Codex turn completed status=#{status_str} items=#{item_count} input_tokens=#{usage.input_tokens || "n/a"} output_tokens=#{usage.output_tokens || "n/a"}"
+        message =
+          "Codex turn completed status=#{status_str} items=#{item_count} input_tokens=#{usage.input_tokens || "n/a"} output_tokens=#{usage.output_tokens || "n/a"}"
 
         if event.error do
           Logger.error("#{message} error=#{inspect(event.error)}", metadata)

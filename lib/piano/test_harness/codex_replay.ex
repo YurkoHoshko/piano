@@ -25,12 +25,14 @@ defmodule Piano.TestHarness.CodexReplay do
   """
 
   alias Piano.TestHarness.OpenAIReplay
+  alias Plug.Conn.Status
 
   @type endpoint :: :chat_completions | :responses
   @last_request_key {__MODULE__, :last_request}
 
   def match_fixture(endpoint, params) when endpoint in [:chat_completions, :responses] do
     params = normalize(params)
+
     fixtures()
     |> Enum.find_value({:error, :no_match}, fn fixture ->
       if match_entry?(fixture.entry, endpoint, params) do
@@ -51,7 +53,7 @@ defmodule Piano.TestHarness.CodexReplay do
   defp response_status(entry, response) do
     case Map.get(entry, "status") || Map.get(response, "status") do
       value when is_integer(value) -> value
-      value when is_atom(value) and not is_nil(value) -> Plug.Conn.Status.code(value)
+      value when is_atom(value) and not is_nil(value) -> Status.code(value)
       _ -> 200
     end
   end
@@ -165,6 +167,7 @@ defmodule Piano.TestHarness.CodexReplay do
   defp endpoint_matches?("/v1/responses", :responses), do: true
   defp endpoint_matches?("chat.completions", :chat_completions), do: true
   defp endpoint_matches?("responses", :responses), do: true
+
   defp endpoint_matches?(endpoint, :chat_completions) when is_binary(endpoint) do
     String.contains?(endpoint, "chat/completions")
   end

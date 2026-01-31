@@ -13,4 +13,3 @@ defmodule Piano.Env do
   @spec dev?() :: boolean()
   def dev?, do: current() == :dev
 end
-

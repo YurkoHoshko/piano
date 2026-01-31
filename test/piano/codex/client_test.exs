@@ -18,7 +18,10 @@ defmodule Piano.Codex.ClientTest do
 
     @tag :skip
     @tag timeout: 30_000
-    test "initializes with real codex pointed at replay API", %{base_url: base_url, fixture_path: fixture_path} do
+    test "initializes with real codex pointed at replay API", %{
+      base_url: base_url,
+      fixture_path: fixture_path
+    } do
       codex_home = Path.expand("tmp/codex_home", File.cwd!())
       File.mkdir_p!(codex_home)
 
@@ -29,11 +32,12 @@ defmodule Piano.Codex.ClientTest do
       ]
 
       CodexReplayHelpers.with_replay_paths([fixture_path], fn ->
-        {:ok, _pid} = Client.start_link(
-          name: :codex_replay_test,
-          env: env,
-          auto_initialize: true
-        )
+        {:ok, _pid} =
+          Client.start_link(
+            name: :codex_replay_test,
+            env: env,
+            auto_initialize: true
+          )
 
         Process.sleep(2000)
 
@@ -114,7 +118,9 @@ defmodule Piano.Codex.ClientTest do
     end
 
     test "parses server request (approval)" do
-      json = ~s({"jsonrpc":"2.0","id":5,"method":"commandExecution/approve","params":{"command":"rm -rf /"}})
+      json =
+        ~s({"jsonrpc":"2.0","id":5,"method":"commandExecution/approve","params":{"command":"rm -rf /"}})
+
       {:ok, message} = Jason.decode(json)
 
       assert message["id"] == 5

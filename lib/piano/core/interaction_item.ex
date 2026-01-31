@@ -20,14 +20,15 @@ defmodule Piano.Core.InteractionItem do
 
     attribute :type, :atom do
       constraints one_of: [
-        :user_message,
-        :agent_message,
-        :reasoning,
-        :command_execution,
-        :file_change,
-        :mcp_tool_call,
-        :web_search
-      ]
+                    :user_message,
+                    :agent_message,
+                    :reasoning,
+                    :command_execution,
+                    :file_change,
+                    :mcp_tool_call,
+                    :web_search
+                  ]
+
       allow_nil? false
     end
 

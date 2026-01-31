@@ -7,8 +7,6 @@ defmodule Piano.Codex.Responses do
   requests and contain request IDs.
   """
 
-
-
   # ============================================================================
   # Response Types
   # ============================================================================
@@ -196,9 +194,10 @@ defmodule Piano.Codex.Responses do
       # Turns may be at: result.turns, result.thread.turns, or thread.turns
       turns =
         Kernel.get_in(response, ["result", "turns"]) ||
-        Kernel.get_in(response, ["result", "thread", "turns"]) ||
-        Kernel.get_in(response, ["thread", "turns"]) ||
-        []
+          Kernel.get_in(response, ["result", "thread", "turns"]) ||
+          Kernel.get_in(response, ["thread", "turns"]) ||
+          []
+
       {thread, turns}
     end
 

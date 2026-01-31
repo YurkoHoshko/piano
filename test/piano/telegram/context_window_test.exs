@@ -5,7 +5,7 @@ defmodule Piano.Telegram.ContextWindowTest do
 
   setup do
     Application.put_env(:piano, :telegram_context_window_size, 50)
-    
+
     # Reset agent state between tests
     Agent.update(Piano.Telegram.ContextWindow, fn _ -> %{} end)
 

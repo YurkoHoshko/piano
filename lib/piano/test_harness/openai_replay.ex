@@ -83,7 +83,8 @@ defmodule Piano.TestHarness.OpenAIReplay do
     }
   end
 
-  defp build_chat_message(%{"tool_calls" => tool_calls} = response) when is_list(tool_calls) and tool_calls != [] do
+  defp build_chat_message(%{"tool_calls" => tool_calls} = response)
+       when is_list(tool_calls) and tool_calls != [] do
     %{
       role: "assistant",
       content: response["content"],
@@ -108,6 +109,7 @@ defmodule Piano.TestHarness.OpenAIReplay do
   def stream_events(response) when is_map(response) do
     response = normalize_map(response)
     text = extract_output_text(response) || ""
+
     output_item =
       case response["output"] do
         list when is_list(list) -> List.first(list) || %{}
@@ -132,7 +134,11 @@ defmodule Piano.TestHarness.OpenAIReplay do
     events =
       []
       |> add_event(%{"type" => "response.created", "response" => response})
-      |> add_event(%{"type" => "response.output_item.added", "output_index" => 0, "item" => message_item})
+      |> add_event(%{
+        "type" => "response.output_item.added",
+        "output_index" => 0,
+        "item" => message_item
+      })
       |> add_event(%{
         "type" => "response.content_part.added",
         "item_id" => item_id,
@@ -148,7 +154,11 @@ defmodule Piano.TestHarness.OpenAIReplay do
         "content_index" => 0,
         "part" => %{"type" => "output_text", "text" => text}
       })
-      |> add_event(%{"type" => "response.output_item.done", "output_index" => 0, "item" => output_item})
+      |> add_event(%{
+        "type" => "response.output_item.done",
+        "output_index" => 0,
+        "item" => output_item
+      })
       |> add_event(%{"type" => "response.completed", "response" => response})
 
     Enum.with_index(events, fn event, idx ->
@@ -308,7 +318,10 @@ defmodule Piano.TestHarness.OpenAIReplay do
     }
   end
 
-  defp default_timings(%{"prompt_tokens" => prompt_tokens, "completion_tokens" => completion_tokens}) do
+  defp default_timings(%{
+         "prompt_tokens" => prompt_tokens,
+         "completion_tokens" => completion_tokens
+       }) do
     default_timings(%{prompt_tokens: prompt_tokens, completion_tokens: completion_tokens})
   end
 

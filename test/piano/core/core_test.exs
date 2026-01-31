@@ -1,7 +1,11 @@
 defmodule Piano.CoreTest do
   use ExUnit.Case, async: false
 
-  alias Piano.Core.{Surface, Agent, Thread, Interaction, InteractionItem}
+  alias Piano.Core.Agent
+  alias Piano.Core.Interaction
+  alias Piano.Core.InteractionItem
+  alias Piano.Core.Surface
+  alias Piano.Core.Thread
 
   setup do
     Piano.Repo.query!("DELETE FROM interaction_items")
@@ -25,7 +29,12 @@ defmodule Piano.CoreTest do
     test "get_by_app_and_identifier finds existing surface" do
       {:ok, created} = Ash.create(Surface, %{app: :telegram, identifier: "test123"})
 
-      query = Ash.Query.for_read(Surface, :get_by_app_and_identifier, %{app: :telegram, identifier: "test123"})
+      query =
+        Ash.Query.for_read(Surface, :get_by_app_and_identifier, %{
+          app: :telegram,
+          identifier: "test123"
+        })
+
       {:ok, found} = Ash.read_one(query)
 
       assert found.id == created.id
@@ -57,7 +66,14 @@ defmodule Piano.CoreTest do
 
     test "get_default returns agent marked as default" do
       {:ok, _} = Ash.create(Agent, %{name: "Regular", model: "o3", workspace_path: "/tmp/a"})
-      {:ok, default} = Ash.create(Agent, %{name: "Default", model: "o3", workspace_path: "/tmp/b", is_default: true})
+
+      {:ok, default} =
+        Ash.create(Agent, %{
+          name: "Default",
+          model: "o3",
+          workspace_path: "/tmp/b",
+          is_default: true
+        })
 
       query = Ash.Query.for_read(Agent, :get_default)
       {:ok, found} = Ash.read_one(query)
@@ -80,7 +96,9 @@ defmodule Piano.CoreTest do
     test "find_recent_for_reply_to finds active thread updated recently" do
       {:ok, thread} = Ash.create(Thread, %{reply_to: "telegram:123456:789"})
 
-      query = Ash.Query.for_read(Thread, :find_recent_for_reply_to, %{reply_to: "telegram:123456:999"})
+      query =
+        Ash.Query.for_read(Thread, :find_recent_for_reply_to, %{reply_to: "telegram:123456:999"})
+
       {:ok, results} = Ash.read(query)
 
       assert length(results) == 1
@@ -110,7 +128,8 @@ defmodule Piano.CoreTest do
     end
 
     test "transitions through status lifecycle" do
-      {:ok, interaction} = Ash.create(Interaction, %{original_message: "Test", reply_to: "telegram:1:2"})
+      {:ok, interaction} =
+        Ash.create(Interaction, %{original_message: "Test", reply_to: "telegram:1:2"})
 
       {:ok, started} = Ash.update(interaction, %{codex_turn_id: "turn_123"}, action: :start)
       assert started.status == :in_progress
@@ -123,7 +142,9 @@ defmodule Piano.CoreTest do
 
     test "can assign thread after creation" do
       {:ok, thread} = Ash.create(Thread, %{reply_to: "telegram:1"})
-      {:ok, interaction} = Ash.create(Interaction, %{original_message: "Hi", reply_to: "telegram:1:99"})
+
+      {:ok, interaction} =
+        Ash.create(Interaction, %{original_message: "Hi", reply_to: "telegram:1:99"})
 
       {:ok, assigned} = Ash.update(interaction, %{thread_id: thread.id}, action: :assign_thread)
 
@@ -133,7 +154,8 @@ defmodule Piano.CoreTest do
 
   describe "InteractionItem" do
     test "creates an item for an interaction" do
-      {:ok, interaction} = Ash.create(Interaction, %{original_message: "Hi", reply_to: "telegram:1:2"})
+      {:ok, interaction} =
+        Ash.create(Interaction, %{original_message: "Hi", reply_to: "telegram:1:2"})
 
       {:ok, item} =
         Ash.create(InteractionItem, %{
@@ -149,8 +171,15 @@ defmodule Piano.CoreTest do
     end
 
     test "complete updates status" do
-      {:ok, interaction} = Ash.create(Interaction, %{original_message: "Hi", reply_to: "telegram:1:2"})
-      {:ok, item} = Ash.create(InteractionItem, %{codex_item_id: "x", type: :agent_message, interaction_id: interaction.id})
+      {:ok, interaction} =
+        Ash.create(Interaction, %{original_message: "Hi", reply_to: "telegram:1:2"})
+
+      {:ok, item} =
+        Ash.create(InteractionItem, %{
+          codex_item_id: "x",
+          type: :agent_message,
+          interaction_id: interaction.id
+        })
 
       {:ok, completed} = Ash.update(item, %{}, action: :complete)
 
@@ -158,11 +187,28 @@ defmodule Piano.CoreTest do
     end
 
     test "list_by_interaction returns items for interaction" do
-      {:ok, interaction} = Ash.create(Interaction, %{original_message: "Hi", reply_to: "telegram:1:2"})
-      {:ok, _} = Ash.create(InteractionItem, %{codex_item_id: "1", type: :user_message, interaction_id: interaction.id})
-      {:ok, _} = Ash.create(InteractionItem, %{codex_item_id: "2", type: :agent_message, interaction_id: interaction.id})
+      {:ok, interaction} =
+        Ash.create(Interaction, %{original_message: "Hi", reply_to: "telegram:1:2"})
 
-      query = Ash.Query.for_read(InteractionItem, :list_by_interaction, %{interaction_id: interaction.id})
+      {:ok, _} =
+        Ash.create(InteractionItem, %{
+          codex_item_id: "1",
+          type: :user_message,
+          interaction_id: interaction.id
+        })
+
+      {:ok, _} =
+        Ash.create(InteractionItem, %{
+          codex_item_id: "2",
+          type: :agent_message,
+          interaction_id: interaction.id
+        })
+
+      query =
+        Ash.Query.for_read(InteractionItem, :list_by_interaction, %{
+          interaction_id: interaction.id
+        })
+
       {:ok, items} = Ash.read(query)
 
       assert length(items) == 2

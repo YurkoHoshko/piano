@@ -151,8 +151,10 @@ defmodule Piano.Telegram.Transcript do
   end
 
   defp format_turn_usage(nil), do: ""
+
   defp format_turn_usage(%{} = usage) do
     tokens = usage["totalTokens"] || usage["total_tokens"]
+
     if tokens do
       "\n\n_Usage: #{tokens} tokens_"
     else
@@ -165,8 +167,8 @@ defmodule Piano.Telegram.Transcript do
   defp format_item(%{"type" => "userMessage"} = item) do
     text = extract_text_content(item["content"]) || item["text"] || ""
     images = item["images"] || []
-    
-    image_note = 
+
+    image_note =
       if images != [] do
         "\n\n_(#{length(images)} image(s) attached)_"
       else
@@ -197,7 +199,7 @@ defmodule Piano.Telegram.Transcript do
   defp format_item(%{"type" => "reasoning"} = item) do
     text = extract_text_content(item["content"]) || item["text"] || ""
     summary = item["summary"]
-    
+
     if summary && summary != text do
       """
       **Reasoning:**
@@ -218,11 +220,11 @@ defmodule Piano.Telegram.Transcript do
   defp format_item(%{"type" => "commandExecution"} = item) do
     command = item["command"] || []
     cmd_str = if is_list(command), do: Enum.join(command, " "), else: inspect(command)
-    
+
     output = item["output"] || item["stdout"] || ""
     exit_code = item["exitCode"] || item["exit_code"]
     status = item["status"] || "completed"
-    
+
     output_section =
       if output != "" do
         """
@@ -253,7 +255,7 @@ defmodule Piano.Telegram.Transcript do
     path = item["path"] || "unknown"
     change_type = item["changeType"] || item["change_type"] || "modified"
     diff = item["diff"] || ""
-    
+
     diff_section =
       if diff != "" do
         """
@@ -274,8 +276,8 @@ defmodule Piano.Telegram.Transcript do
     tool = item["tool"] || item["name"] || "unknown"
     args = item["arguments"] || %{}
     result = item["result"] || item["output"]
-    
-    args_str = 
+
+    args_str =
       if args == %{} do
         ""
       else
@@ -303,7 +305,7 @@ defmodule Piano.Telegram.Transcript do
   defp format_item(%{"type" => "webSearch"} = item) do
     query = item["query"] || ""
     results = item["results"] || []
-    
+
     results_section =
       results
       |> Enum.take(5)
@@ -355,10 +357,10 @@ defmodule Piano.Telegram.Transcript do
   # Unknown types
   defp format_item(item) do
     type = item["type"] || "unknown"
-    
+
     require Logger
     Logger.debug("Unhandled transcript item type in transcript: #{type}")
-    
+
     # Try to show something useful
     if item["text"] do
       "**#{type}:**\n#{item["text"]}"
@@ -369,6 +371,7 @@ defmodule Piano.Telegram.Transcript do
 
   # Extract text from content arrays or strings
   defp extract_text_content(nil), do: nil
+
   defp extract_text_content(content) when is_list(content) do
     content
     |> Enum.map(fn
@@ -399,5 +402,6 @@ defmodule Piano.Telegram.Transcript do
       String.slice(text, 0, max_len) <> "\n... (truncated)"
     end
   end
+
   defp truncate(other, max_len), do: truncate(inspect(other), max_len)
 end

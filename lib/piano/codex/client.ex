@@ -8,11 +8,12 @@ defmodule Piano.Codex.Client do
   """
   use GenServer
 
-  require Logger
-  alias Piano.Pipeline.CodexEventProducer
+  alias Piano.Codex.Config
   alias Piano.Codex.RequestMap
   alias Piano.Core.Interaction
-  alias Piano.Codex.Config
+  alias Piano.Pipeline.CodexEventProducer
+
+  require Logger
   import Ash.Expr, only: [expr: 1]
   require Ash.Query
   require Piano.Surface
@@ -96,6 +97,7 @@ defmodule Piano.Codex.Client do
     Logger.info(
       "Codex environment codex_home=#{inspect(env_value(env, "CODEX_HOME"))} openai_base_url=#{inspect(env_value(env, "OPENAI_BASE_URL"))} openai_api_key?=#{env_value(env, "OPENAI_API_KEY") != nil}"
     )
+
     Logger.info("Codex cwd #{codex_cwd}")
 
     port_opts = [
@@ -107,9 +109,10 @@ defmodule Piano.Codex.Client do
       {:cd, String.to_charlist(codex_cwd)}
     ]
 
-    port = Port.open({:spawn_executable, find_executable(codex_command)}, [
-      {:args, codex_args} | port_opts
-    ])
+    port =
+      Port.open({:spawn_executable, find_executable(codex_command)}, [
+        {:args, codex_args} | port_opts
+      ])
 
     state = %__MODULE__{
       port: port,
@@ -200,7 +203,11 @@ defmodule Piano.Codex.Client do
 
   defp handle_message(%{"id" => id, "result" => result}, state) when not is_nil(id) do
     state = maybe_handle_initialize(id, state)
-    Logger.debug("Codex RPC response received id=#{inspect(id)} result=#{inspect(summarize(result))}")
+
+    Logger.debug(
+      "Codex RPC response received id=#{inspect(id)} result=#{inspect(summarize(result))}"
+    )
+
     enqueue_response(%{"id" => id, "result" => result})
     {:noreply, state}
   end
@@ -252,7 +259,9 @@ defmodule Piano.Codex.Client do
     )
 
     if Application.get_env(:piano, :log_codex_event_payloads, false) do
-      Logger.debug("Codex notification payload method=#{method} params=#{inspect(params, limit: 50)}")
+      Logger.debug(
+        "Codex notification payload method=#{method} params=#{inspect(params, limit: 50)}"
+      )
     end
 
     enqueue_event(method, params)
@@ -344,8 +353,10 @@ defmodule Piano.Codex.Client do
   defp enqueue_event(method, params) do
     # Parse the event into a structured struct immediately
     # Events.parse handles method normalization (e.g., "turn.started" -> "turn/started")
+    alias Piano.Codex.Events
+
     event =
-      case Piano.Codex.Events.parse(%{method: method, params: params}) do
+      case Events.parse(%{method: method, params: params}) do
         {:ok, parsed_event} ->
           parsed_event
 

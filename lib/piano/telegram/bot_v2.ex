@@ -11,10 +11,12 @@ defmodule Piano.Telegram.BotV2 do
 
   require Logger
 
-  alias Piano.Telegram.Handler
   alias Piano.Codex.Client, as: CodexClient
   alias Piano.Codex.Config, as: CodexConfig
   alias Piano.Codex.RequestMap
+  alias Piano.Observability
+  alias Piano.Telegram.Handler
+  alias Piano.Telegram.Surface, as: TelegramSurface
 
   command("start", description: "Welcome message")
   command("help", description: "Show help")
@@ -154,24 +156,28 @@ defmodule Piano.Telegram.BotV2 do
     chat_id = msg.chat.id
 
     # Send placeholder and get message_id
-    {:ok, %{message_id: message_id}} = 
-      Piano.Telegram.Surface.send_message(chat_id, "⏳ Fetching transcript...")
+    {:ok, %{message_id: message_id}} =
+      TelegramSurface.send_message(chat_id, "⏳ Fetching transcript...")
 
     case Handler.get_thread_transcript(chat_id, message_id) do
       {:ok, :pending} ->
         :ok
 
       {:error, :no_thread} ->
-        Piano.Telegram.Surface.edit_message_text(chat_id, message_id, "No active thread found for this chat.")
+        TelegramSurface.edit_message_text(
+          chat_id,
+          message_id,
+          "No active thread found for this chat."
+        )
 
       {:error, reason} ->
         Logger.error("Failed to get transcript: #{inspect(reason)}")
-        Piano.Telegram.Surface.edit_message_text(chat_id, message_id, "⚠️ Failed to get transcript.")
+        TelegramSurface.edit_message_text(chat_id, message_id, "⚠️ Failed to get transcript.")
     end
   end
 
   def handle({:command, :status, _msg}, context) do
-    answer(context, Piano.Observability.status_text())
+    answer(context, Observability.status_text())
   end
 
   def handle({:command, _command, _msg}, context) do
@@ -180,6 +186,7 @@ defmodule Piano.Telegram.BotV2 do
 
   def handle({:text, text, msg}, _context) do
     log_inbound(:text, msg, text)
+
     case Handler.handle_message(msg, text) do
       {:ok, _interaction} ->
         :ok

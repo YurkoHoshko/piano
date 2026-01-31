@@ -1,6 +1,11 @@
 defmodule Piano.Observability do
   @moduledoc false
 
+  alias Ecto.Adapters.SQL
+  alias Piano.Codex.Client, as: CodexClient
+  alias Piano.Codex.Config, as: CodexConfig
+  alias Piano.Repo
+
   require Logger
 
   @table :piano_observability
@@ -20,8 +25,11 @@ defmodule Piano.Observability do
     _ = ensure_table()
 
     case :ets.lookup(@table, :codex_account_status) do
-      [{:codex_account_status, status, updated_at_s}] -> %{status: status, updated_at_s: updated_at_s}
-      _ -> %{status: :unknown, updated_at_s: nil}
+      [{:codex_account_status, status, updated_at_s}] ->
+        %{status: status, updated_at_s: updated_at_s}
+
+      _ ->
+        %{status: :unknown, updated_at_s: nil}
     end
   end
 
@@ -80,24 +88,20 @@ defmodule Piano.Observability do
   end
 
   defp safe_codex_ready? do
-    try do
-      Piano.Codex.Client.ready?()
-    rescue
-      _ -> false
-    end
+    CodexClient.ready?()
+  rescue
+    _ -> false
   end
 
   defp codex_config do
-    try do
-      %{
-        current_profile: Piano.Codex.Config.current_profile!(),
-        profiles: Piano.Codex.Config.profile_names(),
-        codex_command: Piano.Codex.Config.codex_command!()
-      }
-    rescue
-      e ->
-        %{error: Exception.message(e)}
-    end
+    %{
+      current_profile: CodexConfig.current_profile!(),
+      profiles: CodexConfig.profile_names(),
+      codex_command: CodexConfig.codex_command!()
+    }
+  rescue
+    e ->
+      %{error: Exception.message(e)}
   end
 
   defp db_counts do
@@ -109,7 +113,7 @@ defmodule Piano.Observability do
   end
 
   defp count_table(table) when table in ["threads_v2", "interactions", "interaction_items"] do
-    case Ecto.Adapters.SQL.query(Piano.Repo, "select count(*) from #{table}", []) do
+    case SQL.query(Repo, "select count(*) from #{table}", []) do
       {:ok, %{rows: [[count]]}} when is_integer(count) -> count
       _ -> :unknown
     end
@@ -144,7 +148,10 @@ defmodule Piano.Observability do
         %{status: status, updated_at_s: ts} when is_map(status) ->
           # keep it short; avoid printing secrets
           type = status["type"] || status[:type] || "unknown"
-          state = status["state"] || status[:state] || status["status"] || status[:status] || "unknown"
+
+          state =
+            status["state"] || status[:state] || status["status"] || status[:status] || "unknown"
+
           "account=#{type}:#{state} updated_at=#{inspect(ts)}"
 
         other ->
@@ -161,4 +168,3 @@ defmodule Piano.Observability do
     |> Enum.join("\n")
   end
 end
-

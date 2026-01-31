@@ -54,7 +54,13 @@ defmodule Piano.MixProject do
       {:floki, ">= 0.30.0", only: :test},
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.2", runtime: Mix.env() == :dev},
-      {:heroicons, github: "tailwindlabs/heroicons", tag: "v2.1.1", sparse: "optimized", app: false, compile: false, depth: 1},
+      {:heroicons,
+       github: "tailwindlabs/heroicons",
+       tag: "v2.1.1",
+       sparse: "optimized",
+       app: false,
+       compile: false,
+       depth: 1},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:jason, "~> 1.2"},
@@ -78,9 +84,10 @@ defmodule Piano.MixProject do
       {:lazy_html, ">= 0.1.0", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:excoveralls, "~> 0.18", only: :test},
+      {:sourceror, "~> 1.7", only: [:dev, :test]},
 
       # Telegram
-      {:ex_gram, "~> 0.57"},
+      {:ex_gram, "~> 0.57"}
     ]
   end
 

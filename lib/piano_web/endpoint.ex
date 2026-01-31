@@ -17,7 +17,7 @@ defmodule PianoWeb.Endpoint do
     from: :piano,
     gzip: false,
     only: PianoWeb.static_paths()
-    
+
   if code_reloading? do
     socket "/phoenix/live_reload/socket", Phoenix.LiveReloader.Socket
     plug Phoenix.LiveReloader

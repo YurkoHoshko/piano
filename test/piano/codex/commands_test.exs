@@ -81,16 +81,25 @@ defmodule Piano.Codex.CommandsTest do
 
     test "to_map/1 serializes image item" do
       item = Commands.InputItem.image("https://example.com/img.png")
-      assert Commands.InputItem.to_map(item) == %{"type" => "image", "url" => "https://example.com/img.png"}
+
+      assert Commands.InputItem.to_map(item) == %{
+               "type" => "image",
+               "url" => "https://example.com/img.png"
+             }
     end
 
     test "to_map/1 serializes local image item" do
       item = Commands.InputItem.local_image("/tmp/img.png")
-      assert Commands.InputItem.to_map(item) == %{"type" => "localImage", "path" => "/tmp/img.png"}
+
+      assert Commands.InputItem.to_map(item) == %{
+               "type" => "localImage",
+               "path" => "/tmp/img.png"
+             }
     end
 
     test "to_map/1 serializes skill item" do
       item = Commands.InputItem.skill("my-skill", "/path/to/skill.md")
+
       assert Commands.InputItem.to_map(item) == %{
                "type" => "skill",
                "name" => "my-skill",
@@ -189,11 +198,12 @@ defmodule Piano.Codex.CommandsTest do
     end
 
     test "to_json_rpc/1 serializes correctly" do
-      cmd = Commands.ThreadStart.new(
-        model: "gpt-5.1-codex",
-        input: "Hello",
-        approval_policy: "unlessTrusted"
-      )
+      cmd =
+        Commands.ThreadStart.new(
+          model: "gpt-5.1-codex",
+          input: "Hello",
+          approval_policy: "unlessTrusted"
+        )
 
       json = Commands.to_json_rpc(cmd, request_id: 10)
 
@@ -345,11 +355,12 @@ defmodule Piano.Codex.CommandsTest do
     end
 
     test "to_json_rpc/1 serializes correctly" do
-      cmd = Commands.TurnStart.new("thr_123",
-        input: "Hello",
-        model: "gpt-5.1-codex",
-        effort: "high"
-      )
+      cmd =
+        Commands.TurnStart.new("thr_123",
+          input: "Hello",
+          model: "gpt-5.1-codex",
+          effort: "high"
+        )
 
       json = Commands.to_json_rpc(cmd, request_id: 30)
 

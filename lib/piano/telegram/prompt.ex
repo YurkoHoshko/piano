@@ -22,10 +22,17 @@ defmodule Piano.Telegram.Prompt do
 
       display =
         cond do
-          is_binary(username) and username != "" -> "@#{username}"
-          is_binary(first_name) and is_binary(last_name) -> String.trim("#{first_name} #{last_name}")
-          is_binary(first_name) and first_name != "" -> first_name
-          true -> "unknown"
+          is_binary(username) and username != "" ->
+            "@#{username}"
+
+          is_binary(first_name) and is_binary(last_name) ->
+            String.trim("#{first_name} #{last_name}")
+
+          is_binary(first_name) and first_name != "" ->
+            first_name
+
+          true ->
+            "unknown"
         end
 
       chat_name =

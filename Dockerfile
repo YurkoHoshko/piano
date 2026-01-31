@@ -76,7 +76,7 @@ RUN useradd --create-home app && \
 RUN mkdir -p /data /piano/runtime /piano/agents && chown -R app:app /data /piano
 
 # Create mise directories with proper ownership for the app user
-RUN mkdir -p /home/app/.cache/mise /home/app/.local/share/mise && \
+RUN mkdir -p /home/app/.cache/mise /home/app/.local/share/mise /home/app/.local/state/mise && \
     chown -R app:app /home/app/.cache /home/app/.local
 
 # Set mise environment variables for the app user

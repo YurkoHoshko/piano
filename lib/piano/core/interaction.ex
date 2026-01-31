@@ -24,6 +24,7 @@ defmodule Piano.Core.Interaction do
 
     attribute :reply_to, :string do
       allow_nil? false
+
       description "Surface reference like 'telegram:<chat_id>:<message_id>' or 'liveview:<session_id>'"
     end
 

@@ -8,7 +8,8 @@ defmodule Piano.Codex do
 
   alias Piano.Codex.Client
   alias Piano.Codex.RequestMap
-  alias Piano.Core.{Thread, Interaction}
+  alias Piano.Core.Interaction
+  alias Piano.Core.Thread
   require Logger
 
   @doc """
@@ -32,12 +33,20 @@ defmodule Piano.Codex do
 
       case ensure_codex_thread(thread, client) do
         {:ok, %{status: :ready, thread: thread}} ->
-          Logger.info("Codex thread ready", thread_id: thread.id, codex_thread_id: thread.codex_thread_id)
+          Logger.info("Codex thread ready",
+            thread_id: thread.id,
+            codex_thread_id: thread.codex_thread_id
+          )
+
           :ok = request_turn_start(interaction, thread, client)
           {:ok, interaction}
 
         {:ok, %{status: :pending}} ->
-          Logger.info("Codex thread pending; interaction queued", interaction_id: interaction.id, thread_id: thread.id)
+          Logger.info("Codex thread pending; interaction queued",
+            interaction_id: interaction.id,
+            thread_id: thread.id
+          )
+
           {:ok, interaction}
       end
     end
@@ -48,8 +57,10 @@ defmodule Piano.Codex do
   """
   def start_thread(%Thread{} = thread, client \\ Client) do
     request_id = request_id()
+    alias Piano.Codex.Config, as: CodexConfig
+
     :ok = RequestMap.put(request_id, %{type: :thread_start, thread_id: thread.id, client: client})
-    :ok = Client.send_request(client, "thread/start", %{cwd: Piano.Codex.Config.codex_cwd()}, request_id)
+    :ok = Client.send_request(client, "thread/start", %{cwd: CodexConfig.codex_cwd()}, request_id)
     {:ok, request_id}
   end
 
@@ -61,7 +72,8 @@ defmodule Piano.Codex do
   def force_start_thread(%Thread{} = thread, client) do
     Logger.info("Codex force-start thread", thread_id: thread.id)
 
-    with {:ok, updated} <- Ash.update(thread, %{codex_thread_id: nil}, action: :set_codex_thread_id) do
+    with {:ok, updated} <-
+           Ash.update(thread, %{codex_thread_id: nil}, action: :set_codex_thread_id) do
       start_thread(updated, client)
     end
   end
@@ -130,7 +142,8 @@ defmodule Piano.Codex do
       {:error, :not_found} ->
         create_thread(reply_to)
 
-      {:error, _} = error -> error
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -172,10 +185,15 @@ defmodule Piano.Codex do
     else
       case Ash.update(interaction, %{thread_id: thread.id}, action: :assign_thread) do
         {:ok, updated} ->
-          Logger.info("Interaction assigned thread", interaction_id: updated.id, thread_id: thread.id)
+          Logger.info("Interaction assigned thread",
+            interaction_id: updated.id,
+            thread_id: thread.id
+          )
+
           {:ok, %{updated | thread: thread}}
 
-        {:error, reason} -> {:error, {:thread_assign_failed, reason}}
+        {:error, reason} ->
+          {:error, {:thread_assign_failed, reason}}
       end
     end
   end
@@ -191,13 +209,21 @@ defmodule Piano.Codex do
     params = params |> Enum.reject(fn {_k, v} -> is_nil(v) end) |> Map.new()
 
     request_id = request_id()
-    :ok = RequestMap.put(request_id, %{
-      type: :turn_start,
+
+    :ok =
+      RequestMap.put(request_id, %{
+        type: :turn_start,
+        thread_id: thread.id,
+        interaction_id: interaction.id,
+        client: client
+      })
+
+    Logger.info("Codex turn/start request",
+      request_id: request_id,
       thread_id: thread.id,
-      interaction_id: interaction.id,
-      client: client
-    })
-    Logger.info("Codex turn/start request", request_id: request_id, thread_id: thread.id, interaction_id: interaction.id)
+      interaction_id: interaction.id
+    )
+
     Client.send_request(client, "turn/start", params, request_id)
   end
 

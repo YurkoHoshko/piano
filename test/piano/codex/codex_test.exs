@@ -4,9 +4,11 @@ defmodule Piano.CodexTest do
 
   alias Piano.Codex
   alias Piano.Codex.Client
-  alias Piano.Core.{Thread, Interaction, InteractionItem}
-  alias Piano.TestHarness.CodexReplayHelpers
+  alias Piano.Core.Interaction
+  alias Piano.Core.InteractionItem
+  alias Piano.Core.Thread
   alias Piano.TestHarness.CodexReplay
+  alias Piano.TestHarness.CodexReplayHelpers
 
   @moduletag :codex
 
@@ -44,11 +46,13 @@ defmodule Piano.CodexTest do
     setup do
       reply_to = "telegram:123456:789"
       {:ok, thread} = Ash.create(Thread, %{reply_to: "telegram:123456"})
-      {:ok, interaction} = Ash.create(Interaction, %{
-        original_message: "Hello, world!",
-        reply_to: reply_to,
-        thread_id: thread.id
-      })
+
+      {:ok, interaction} =
+        Ash.create(Interaction, %{
+          original_message: "Hello, world!",
+          reply_to: reply_to,
+          thread_id: thread.id
+        })
 
       {:ok, thread: thread, interaction: interaction}
     end
@@ -68,7 +72,8 @@ defmodule Piano.CodexTest do
     end
 
     test "thread can be updated with codex_thread_id", %{thread: thread} do
-      {:ok, updated} = Ash.update(thread, %{codex_thread_id: "thread_abc"}, action: :set_codex_thread_id)
+      {:ok, updated} =
+        Ash.update(thread, %{codex_thread_id: "thread_abc"}, action: :set_codex_thread_id)
 
       assert updated.codex_thread_id == "thread_abc"
     end
@@ -79,6 +84,7 @@ defmodule Piano.CodexTest do
 
     setup do
       Logger.configure(level: :debug)
+
       Logger.debug(
         "Codex pipeline status pipeline=#{inspect(Process.whereis(Piano.Pipeline.CodexEventPipeline))} producer=#{inspect(Process.whereis(Piano.Pipeline.CodexEventProducer))}"
       )
@@ -102,6 +108,7 @@ defmodule Piano.CodexTest do
           {:error, reason} -> raise "Failed to start Piano.PubSub: #{inspect(reason)}"
         end
       end
+
       :ok = CodexReplayHelpers.start_endpoint!()
       base_url = CodexReplayHelpers.base_url()
       fixture_path = "test/fixtures/codex/replay.json"
@@ -122,11 +129,13 @@ defmodule Piano.CodexTest do
 
       reply_to = "telegram:123456:789"
       {:ok, thread} = Ash.create(Thread, %{reply_to: "telegram:123456"})
-      {:ok, interaction} = Ash.create(Interaction, %{
-        original_message: "What is 2+2?",
-        reply_to: reply_to,
-        thread_id: thread.id
-      })
+
+      {:ok, interaction} =
+        Ash.create(Interaction, %{
+          original_message: "What is 2+2?",
+          reply_to: reply_to,
+          thread_id: thread.id
+        })
 
       on_exit(fn ->
         if Process.whereis(:integration_client) do
@@ -137,7 +146,10 @@ defmodule Piano.CodexTest do
       {:ok, fixture_path: fixture_path, interaction: interaction}
     end
 
-    test "full turn flow persists response and items", %{fixture_path: fixture_path, interaction: interaction} do
+    test "full turn flow persists response and items", %{
+      fixture_path: fixture_path,
+      interaction: interaction
+    } do
       CodexReplayHelpers.with_replay_paths([fixture_path], fn ->
         {:ok, started} = Codex.start_turn(interaction, client: :integration_client)
         {:ok, _request} = await_replay_request()
@@ -146,13 +158,17 @@ defmodule Piano.CodexTest do
         assert completed.status == :complete
         assert completed.response == "Generic replay response."
 
-        query = Ash.Query.for_read(InteractionItem, :list_by_interaction, %{interaction_id: completed.id})
+        query =
+          Ash.Query.for_read(InteractionItem, :list_by_interaction, %{
+            interaction_id: completed.id
+          })
+
         {:ok, items} = Ash.read(query)
 
         assert Enum.any?(items, fn item ->
-          item.type == :agent_message and
-            get_in(item.payload, ["item", "text"]) == "Generic replay response."
-        end)
+                 item.type == :agent_message and
+                   get_in(item.payload, ["item", "text"]) == "Generic replay response."
+               end)
       end)
     end
   end

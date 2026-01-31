@@ -15,6 +15,9 @@ defmodule Piano.Telegram.Surface do
   - Complete transcript generation including all agent actions
   """
 
+  alias Piano.Telegram.ContextWindow
+  alias Piano.Telegram.Prompt
+
   defstruct [:chat_id, :message_id]
 
   @type t :: %__MODULE__{
@@ -128,7 +131,7 @@ defmodule Piano.Telegram.Surface do
   """
   @spec prompt(map() | struct(), String.t()) :: String.t()
   def prompt(%{chat: %{id: chat_id, type: chat_type}} = msg, text) do
-    participants = 
+    participants =
       if chat_type in ["group", "supergroup"] do
         case ExGram.get_chat_member_count(chat_id) do
           {:ok, count} when is_integer(count) -> count
@@ -141,7 +144,8 @@ defmodule Piano.Telegram.Surface do
     recent =
       if chat_type in ["group", "supergroup"] do
         message_id = Map.get(msg, :message_id) || Map.get(msg, "message_id")
-        Piano.Telegram.ContextWindow.recent(chat_id,
+
+        ContextWindow.recent(chat_id,
           mode: :since_last_tag_or_last_n,
           limit: 15,
           exclude_message_id: message_id
@@ -150,15 +154,15 @@ defmodule Piano.Telegram.Surface do
         []
       end
 
-    Piano.Telegram.Prompt.build(msg, text, participants: participants, recent: recent)
+    Prompt.build(msg, text, participants: participants, recent: recent)
   end
 end
 
 defimpl Piano.Surface, for: Piano.Telegram.Surface do
+  alias Piano.Codex.Events
+  alias Piano.Surface.Context
   alias Piano.Telegram.Surface, as: TelegramSurface
   alias Piano.Telegram.Transcript
-  alias Piano.Surface.Context
-  alias Piano.Codex.Events
   require Ash.Query
 
   @telegram_output_preview_max 500
@@ -171,7 +175,7 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
   def on_turn_started(surface, context, _params) do
     emoji = pick_emoji(context)
     status_line = format_status_line(context, "thinking...")
-    
+
     message = "#{emoji} <b>Processing</b>\n\n#{status_line}"
     TelegramSurface.update_message(surface, message, parse_mode: "HTML")
   end
@@ -179,7 +183,7 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
   def on_turn_completed(surface, context, params) do
     response = extract_response(context, params)
     tool_summary = build_tool_summary(context)
-    
+
     message = format_completion_message(response, tool_summary, context)
     TelegramSurface.update_message(surface, message, parse_mode: "HTML")
   end
@@ -218,7 +222,7 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
   def on_approval_required(surface, _context, params) do
     item_type = get_in(params, ["item", "type"]) || params["type"]
     emoji = approval_emoji(item_type)
-    
+
     message = "#{emoji} <b>Approval Required</b>\n\n#{format_approval_details(params)}"
     TelegramSurface.update_message(surface, message, parse_mode: "HTML")
   end
@@ -256,7 +260,8 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
   defp format_status_line(_context, status), do: status
 
   # Extract response text from context/params
-  defp extract_response(%Context{interaction: %{response: response}}, _params) when is_binary(response) do
+  defp extract_response(%Context{interaction: %{response: response}}, _params)
+       when is_binary(response) do
     response
   end
 
@@ -269,11 +274,14 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
 
   # Build tool summary from interaction items
   defp build_tool_summary(%Context{interaction: nil}), do: nil
-  
+
   defp build_tool_summary(%Context{interaction: interaction}) do
     tool_types = [:command_execution, :file_change, :mcp_tool_call]
 
-    case Ash.read(Piano.Core.InteractionItem, action: :list_by_interaction, args: %{interaction_id: interaction.id}) do
+    case Ash.read(Piano.Core.InteractionItem,
+           action: :list_by_interaction,
+           args: %{interaction_id: interaction.id}
+         ) do
       {:ok, items} ->
         tool_items = Enum.filter(items, &(&1.type in tool_types))
 
@@ -295,7 +303,7 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
     command = payload["item"]["command"] || payload["command"] || []
     cmd_str = if is_list(command), do: Enum.join(command, " "), else: inspect(command)
     preview = truncate_line(cmd_str, @tool_preview_max)
-    
+
     "<b>⚙️ Command:</b> <tg-spoiler><code>#{escape_html(preview)}</code></tg-spoiler>"
   end
 
@@ -307,8 +315,10 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
   defp format_tool_item(%{type: :mcp_tool_call, payload: payload}) do
     tool_name = payload["item"]["tool"] || payload["tool"] || payload["name"] || "unknown"
     args = payload["item"]["arguments"] || payload["arguments"] || %{}
-    args_preview = if args == %{}, do: "", else: " #{truncate_line(inspect(args), @tool_preview_max - 20)}"
-    
+
+    args_preview =
+      if args == %{}, do: "", else: " #{truncate_line(inspect(args), @tool_preview_max - 20)}"
+
     "<b>🔧 Tool:</b> <code>#{escape_html(to_string(tool_name))}</code> <tg-spoiler>#{escape_html(args_preview)}</tg-spoiler>"
   end
 
@@ -327,7 +337,7 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
 
   defp format_completion_message(response, tool_items, context) do
     emoji = pick_emoji(context)
-    
+
     tool_lines =
       tool_items
       |> Enum.reject(&is_nil/1)
@@ -359,34 +369,49 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
         {emoji, "thinking#{status_suffix(params, phase)}", format_thinking_preview(text)}
 
       "commandExecution" ->
-        cmd = get_in(item, ["command"]) || get_in(item, ["input", "command"]) || get_in(item, ["payload", "command"])
-        cmd_str = cond do
-          is_list(cmd) -> Enum.join(cmd, " ")
-          is_binary(cmd) -> cmd
-          true -> "command"
-        end
-        
+        cmd =
+          get_in(item, ["command"]) || get_in(item, ["input", "command"]) ||
+            get_in(item, ["payload", "command"])
+
+        cmd_str =
+          cond do
+            is_list(cmd) -> Enum.join(cmd, " ")
+            is_binary(cmd) -> cmd
+            true -> "command"
+          end
+
         output = extract_item_output(params)
         emoji = if phase == :completed, do: "✅", else: "⚙️"
         preview = truncate_line(cmd_str, @tool_preview_max)
         {emoji, "executing: #{preview}#{status_suffix(params, phase)}", output}
 
       "fileChange" ->
-        path = get_in(item, ["path"]) || get_in(item, ["input", "path"]) || get_in(item, ["payload", "path"])
+        path =
+          get_in(item, ["path"]) || get_in(item, ["input", "path"]) ||
+            get_in(item, ["payload", "path"])
+
         output = extract_item_output(params)
         emoji = if phase == :completed, do: "✅", else: "📝"
         display = if is_binary(path), do: path, else: "file change"
-        {emoji, "editing: #{truncate_line(display, @tool_preview_max)}#{status_suffix(params, phase)}", output}
+
+        {emoji,
+         "editing: #{truncate_line(display, @tool_preview_max)}#{status_suffix(params, phase)}",
+         output}
 
       "mcpToolCall" ->
-        tool = get_in(item, ["tool"]) || get_in(item, ["name"]) || get_in(item, ["payload", "tool"])
+        tool =
+          get_in(item, ["tool"]) || get_in(item, ["name"]) || get_in(item, ["payload", "tool"])
+
         output = extract_item_output(params)
         emoji = if phase == :completed, do: "✅", else: "🔧"
         display = if tool, do: "tool: #{tool}", else: "tool call"
         {emoji, "#{display}#{status_suffix(params, phase)}", output}
 
       "webSearch" ->
-        query = get_in(item, ["query"]) || get_in(item, ["input", "query"]) || get_in(item, ["payload", "query"])
+        query =
+          get_in(item, ["query"]) || get_in(item, ["input", "query"]) ||
+            get_in(item, ["payload", "query"])
+
         output = extract_item_output(params)
         emoji = if phase == :completed, do: "✅", else: "🔍"
         display = if is_binary(query), do: "search: #{query}", else: "search"
@@ -402,14 +427,17 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
   end
 
   defp format_thinking_preview(nil), do: ""
-  defp format_thinking_preview(text) when is_binary(text), do: truncate_line(text, @tool_preview_max)
+
+  defp format_thinking_preview(text) when is_binary(text),
+    do: truncate_line(text, @tool_preview_max)
+
   defp format_thinking_preview(_), do: ""
 
   defp format_progress_message(context, emoji, line, details, phase) do
     status_line = format_status_line(context, "")
     phase_indicator = if phase == :started, do: "<i>in progress...</i>", else: ""
-    
-    output_preview = 
+
+    output_preview =
       if details && details != "" do
         preview = truncate_line(details, @telegram_output_preview_max)
         "\n\n<tg-spoiler><code>#{escape_html(preview)}</code></tg-spoiler>"
@@ -428,25 +456,25 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
   defp format_approval_details(params) do
     item = params["item"] || %{}
     item_type = item["type"] || params["type"]
-    
+
     case item_type do
       "commandExecution" ->
         cmd = item["command"] || []
         cmd_str = if is_list(cmd), do: Enum.join(cmd, " "), else: inspect(cmd)
         reason = params["reason"] || item["reason"]
-        
+
         details = "<code>#{escape_html(cmd_str)}</code>"
         details = if reason, do: details <> "\n<i>#{escape_html(reason)}</i>", else: details
         details
-        
+
       "fileChange" ->
         path = item["path"] || "unknown"
         reason = params["reason"] || item["reason"]
-        
+
         details = "File: <code>#{escape_html(path)}</code>"
         details = if reason, do: details <> "\n<i>#{escape_html(reason)}</i>", else: details
         details
-        
+
       _ ->
         "This action requires your approval."
     end
@@ -490,9 +518,11 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
   defp coerce_text(text) when is_binary(text), do: text
   defp coerce_text(%{"text" => text}) when is_binary(text), do: text
   defp coerce_text(%{text: text}) when is_binary(text), do: text
+
   defp coerce_text(other) when is_map(other) or is_list(other) do
     inspect(other, limit: 50, printable_limit: 800)
   end
+
   defp coerce_text(other), do: to_string(other)
 
   defp truncate_line(text, max_len) when is_binary(text) and is_integer(max_len) do

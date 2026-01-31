@@ -1,7 +1,7 @@
 defmodule Piano.Transcript.Builder do
   @moduledoc """
   Builds transcripts directly from thread/read response.
-  
+
   No event conversion - just formats the raw response data.
   """
 
@@ -14,16 +14,16 @@ defmodule Piano.Transcript.Builder do
     result = response["result"] || response
     thread = result["thread"] || %{}
     turns = result["turns"] || thread["turns"] || []
-    
+
     header = format_header(thread)
-    
+
     turns_text =
       turns
       |> Enum.with_index(1)
       |> Enum.map(fn {turn, idx} -> format_turn(turn, idx) end)
       |> Enum.reject(&is_nil/1)
       |> Enum.join("\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
-    
+
     if turns_text == "" do
       header <> "\n📝 _No messages in this thread._"
     else
@@ -34,11 +34,11 @@ defmodule Piano.Transcript.Builder do
   defp format_header(thread) do
     thread_id = thread["id"] || "unknown"
     created = thread["createdAt"] || "unknown"
-    
+
     """
     📄 **THREAD TRANSCRIPT**
     ════════════════════════════════════════
-    
+
     🆔 **Thread ID:** `#{thread_id}`
     📅 **Created:** #{created}
     """
@@ -46,22 +46,24 @@ defmodule Piano.Transcript.Builder do
 
   defp format_turn(turn, idx) do
     items = turn["items"] || []
-    
+
     entries =
       items
       |> Enum.map(&format_item/1)
       |> Enum.reject(&is_nil/1)
-    
+
     case entries do
-      [] -> nil
+      [] ->
+        nil
+
       _ ->
         status = turn["status"] || "unknown"
         status_emoji = status_emoji(status)
-        
+
         """
         🔄 **Turn #{idx}** #{status_emoji}
         ────────────────────────────────────────
-        
+
         #{Enum.join(entries, "\n\n")}
         """
         |> String.trim()
@@ -87,7 +89,7 @@ defmodule Piano.Transcript.Builder do
     cmd = item["command"] || []
     cmd_str = if is_list(cmd), do: Enum.join(cmd, " "), else: inspect(cmd)
     output = (item["result"] && item["result"]["output"]) || item["stdout"] || ""
-    
+
     if output != "" do
       "💻 **Command:** `#{cmd_str}`\n```\n#{output}\n```"
     else
@@ -105,7 +107,7 @@ defmodule Piano.Transcript.Builder do
   defp format_item(%{"type" => "mcpToolCall"} = item) do
     tool = item["tool"] || "unknown"
     result = item["result"]
-    
+
     if result do
       "🔌 **Tool:** `#{tool}`\n→ `#{inspect(result)}`"
     else

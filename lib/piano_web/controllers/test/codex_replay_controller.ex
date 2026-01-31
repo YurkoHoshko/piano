@@ -4,6 +4,7 @@ defmodule PianoWeb.CodexReplayController do
   require Logger
 
   alias Piano.TestHarness.CodexReplay
+  alias Piano.TestHarness.OpenAIReplay
 
   def chat_completions(conn, _params) do
     params = conn.body_params
@@ -79,7 +80,7 @@ defmodule PianoWeb.CodexReplayController do
   end
 
   defp stream_events(conn, :responses, body) do
-    events = Piano.TestHarness.OpenAIReplay.stream_events(body)
+    events = OpenAIReplay.stream_events(body)
 
     Enum.reduce_while(events, conn, fn event, conn ->
       data = "data: " <> Jason.encode!(event) <> "\n\n"
@@ -92,7 +93,7 @@ defmodule PianoWeb.CodexReplayController do
   end
 
   defp stream_events(conn, :chat_completions, body) do
-    events = Piano.TestHarness.OpenAIReplay.stream_chat_events(body)
+    events = OpenAIReplay.stream_chat_events(body)
 
     conn =
       Enum.reduce_while(events, conn, fn event, conn ->

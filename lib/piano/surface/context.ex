@@ -28,8 +28,9 @@ defmodule Piano.Surface.Context do
       end
   """
 
-  alias Piano.Core.{Interaction, Thread}
   alias Piano.Codex.Events
+  alias Piano.Core.Interaction
+  alias Piano.Core.Thread
 
   defstruct [
     :interaction,

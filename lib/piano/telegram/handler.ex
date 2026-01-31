@@ -7,14 +7,13 @@ defmodule Piano.Telegram.Handler do
 
   require Logger
 
+  alias Piano.Codex.Client, as: CodexClient
+  alias Piano.Codex.RequestMap
   alias Piano.Core.Interaction
   alias Piano.Core.Thread
   alias Piano.Telegram.ContextWindow
   alias Piano.Telegram.Surface, as: TelegramSurface
-  alias Piano.Codex.Client, as: CodexClient
-  alias Piano.Codex.RequestMap
 
-  
   @doc """
   Handle an incoming Telegram text message.
 
@@ -38,7 +37,11 @@ defmodule Piano.Telegram.Handler do
       _ = ContextWindow.record(msg, text)
 
       if chat_type in ["group", "supergroup"] and not tagged_for_bot?(text) do
-        Logger.info("Telegram group message ignored (not tagged)", chat_id: chat_id, chat_type: chat_type)
+        Logger.info("Telegram group message ignored (not tagged)",
+          chat_id: chat_id,
+          chat_type: chat_type
+        )
+
         {:ok, :ignored_not_tagged}
       else
         if chat_type in ["group", "supergroup"] do
@@ -55,7 +58,7 @@ defmodule Piano.Telegram.Handler do
           :not_handled ->
             with {:ok, reply_to} <- TelegramSurface.send_placeholder(chat_id),
                  {:ok, interaction} <- create_interaction(prompt, reply_to),
-               {:ok, interaction} <- start_turn(interaction) do
+                 {:ok, interaction} <- start_turn(interaction) do
               Logger.info("Telegram message processed",
                 chat_id: chat_id,
                 interaction_id: interaction.id
@@ -174,7 +177,8 @@ defmodule Piano.Telegram.Handler do
     Map.get(msg, :message_id) || Map.get(msg, "message_id")
   end
 
-  defp maybe_handle_localhost_1455_link(chat_id, text) when is_integer(chat_id) and is_binary(text) do
+  defp maybe_handle_localhost_1455_link(chat_id, text)
+       when is_integer(chat_id) and is_binary(text) do
     url = String.trim(text)
 
     if String.starts_with?(url, "localhost") do
@@ -312,7 +316,11 @@ defmodule Piano.Telegram.Handler do
           })
 
         :ok =
-          CodexClient.send_request("thread/read", %{threadId: codex_thread_id, includeTurns: true}, request_id)
+          CodexClient.send_request(
+            "thread/read",
+            %{threadId: codex_thread_id, includeTurns: true},
+            request_id
+          )
 
         {:ok, :pending}
 

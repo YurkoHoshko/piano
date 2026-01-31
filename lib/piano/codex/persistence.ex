@@ -86,7 +86,8 @@ defmodule Piano.Codex.Persistence do
     fetch_interaction_by_turn(nil, turn_id)
   end
 
-  defp fetch_by_turn_or_thread(turn_id, thread_id) when is_binary(turn_id) and is_binary(thread_id) do
+  defp fetch_by_turn_or_thread(turn_id, thread_id)
+       when is_binary(turn_id) and is_binary(thread_id) do
     fetch_interaction_by_turn_and_thread(turn_id, thread_id)
   end
 
@@ -108,7 +109,10 @@ defmodule Piano.Codex.Persistence do
   end
 
   defp maybe_fallback_latest({:ok, interaction}, _thread_id), do: {:ok, interaction}
-  defp maybe_fallback_latest({:error, :not_found}, thread_id), do: fetch_latest_interaction(thread_id)
+
+  defp maybe_fallback_latest({:error, :not_found}, thread_id),
+    do: fetch_latest_interaction(thread_id)
+
   defp maybe_fallback_latest({:error, _} = error, _thread_id), do: error
 
   defp fetch_latest_for_thread(codex_thread_id) do
@@ -203,7 +207,8 @@ defmodule Piano.Codex.Persistence do
   defp interaction_action_from_event(%Events.TurnCompleted{status: :interrupted}), do: :interrupt
   defp interaction_action_from_event(%Events.TurnCompleted{}), do: :complete
 
-  defp update_interaction_response(interaction, message) when is_binary(message) and message != "" do
+  defp update_interaction_response(interaction, message)
+       when is_binary(message) and message != "" do
     response = append_response_text(interaction.response, message)
     action = response_action(interaction.status)
     Ash.update(interaction, %{response: response}, action: action)
@@ -264,7 +269,10 @@ defmodule Piano.Codex.Persistence do
     |> Ash.read()
   end
 
-  defp maybe_update_response_from_item(interaction, %Events.ItemCompleted{type: :agent_message} = event) do
+  defp maybe_update_response_from_item(
+         interaction,
+         %Events.ItemCompleted{type: :agent_message} = event
+       ) do
     text =
       Events.extract_text_from_content(Kernel.get_in(event.raw_params, ["item", "content"])) ||
         Kernel.get_in(event.raw_params, ["item", "message"]) ||

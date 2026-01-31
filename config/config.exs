@@ -43,7 +43,27 @@ config :tailwind,
 
 config :logger, :default_formatter,
   format: "$time [$level] $metadata$message\n",
-  metadata: [:mfa, :request_id, :interaction_id, :thread_id, :codex_thread_id, :chat_id, :error]
+  metadata: [
+    :mfa,
+    :request_id,
+    :interaction_id,
+    :thread_id,
+    :codex_thread_id,
+    :chat_id,
+    :error,
+    :kind,
+    :chat_type,
+    :from_id,
+    :username,
+    :preview,
+    :event,
+    :current_profile,
+    :turn_id,
+    :codex_method,
+    :codex_method_normalized,
+    :codex_request_id,
+    :status
+  ]
 
 config :phoenix, :json_library, Jason
 

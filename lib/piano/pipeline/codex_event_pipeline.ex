@@ -3,11 +3,14 @@ defmodule Piano.Pipeline.CodexEventPipeline do
 
   use Broadway
 
+  alias Piano.Pipeline.CodexEventConsumer
+  alias Piano.Pipeline.CodexEventProducer
+
   def start_link(_opts \\ []) do
     Broadway.start_link(__MODULE__,
       name: __MODULE__,
       producer: [
-        module: {Piano.Pipeline.CodexEventProducer, []},
+        module: {CodexEventProducer, []},
         transformer: {__MODULE__, :wrap_message, []}
       ],
       processors: [default: [concurrency: System.schedulers_online(), max_demand: 20]],
@@ -27,7 +30,7 @@ defmodule Piano.Pipeline.CodexEventPipeline do
 
   @impl true
   def handle_message(_processor, message, _context) do
-    :ok = Piano.Pipeline.CodexEventConsumer.process(message.data)
+    :ok = CodexEventConsumer.process(message.data)
     message
   end
 end

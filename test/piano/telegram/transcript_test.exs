@@ -11,8 +11,14 @@ defmodule Piano.Telegram.TranscriptTest do
           %{
             "id" => "turn-1",
             "items" => [
-              %{"type" => "userMessage", "content" => [%{"type" => "input_text", "text" => "Hey"}]},
-              %{"type" => "agentMessage", "content" => [%{"type" => "output_text", "text" => "Hello"}]}
+              %{
+                "type" => "userMessage",
+                "content" => [%{"type" => "input_text", "text" => "Hey"}]
+              },
+              %{
+                "type" => "agentMessage",
+                "content" => [%{"type" => "output_text", "text" => "Hello"}]
+              }
             ]
           }
         ]
@@ -24,4 +30,3 @@ defmodule Piano.Telegram.TranscriptTest do
     refute md =~ "\n    ## Turn"
   end
 end
-
