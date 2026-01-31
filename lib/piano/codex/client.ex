@@ -333,13 +333,31 @@ defmodule Piano.Codex.Client do
   end
 
   defp enqueue_response(response) do
-    enqueue_event("rpc/response", response)
+    # RPC responses are handled specially, not parsed as events
+    CodexEventProducer.enqueue(%{
+      type: :rpc_response,
+      payload: response,
+      partition_key: extract_partition_key(response)
+    })
   end
 
   defp enqueue_event(method, params) do
+    # Parse the event into a structured struct immediately
+    # Events.parse handles method normalization (e.g., "turn.started" -> "turn/started")
+    event =
+      case Piano.Codex.Events.parse(%{method: method, params: params}) do
+        {:ok, parsed_event} ->
+          parsed_event
+
+        {:error, reason} ->
+          Logger.warning("Failed to parse Codex event: #{inspect(reason)}, method: #{method}")
+          # Fall back to raw event for unknown types
+          %{method: method, params: params, parse_error: reason}
+      end
+
     CodexEventProducer.enqueue(%{
-      method: method,
-      params: params,
+      type: :event,
+      event: event,
       partition_key: extract_partition_key(params)
     })
   end

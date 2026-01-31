@@ -68,12 +68,10 @@ defmodule Piano.Application do
     configured = System.get_env("PIANO_ADMIN_TOKEN") || Application.get_env(:piano, :admin_token)
 
     token =
-      cond do
-        is_binary(configured) and configured != "" and configured != "piano_admin" ->
-          configured
-
-        true ->
-          :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
+      if is_binary(configured) and configured != "" and configured != "piano_admin" do
+        configured
+      else
+        :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
       end
 
     Application.put_env(:piano, :admin_token, token)

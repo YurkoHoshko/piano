@@ -18,46 +18,60 @@ defprotocol Piano.Surface do
   ## Thread Operations
 
   - `send_thread_transcript/2` - Sends a formatted thread transcript to the surface
+
+  ## Context
+
+  All lifecycle callbacks receive a `Piano.Surface.Context` struct as the second
+  parameter. This provides unified access to core constructs:
+  - `:interaction` - The Core.Interaction (may be nil for thread-level events)
+  - `:turn_id` - Codex turn ID
+  - `:thread_id` - Codex thread ID
+  - `:thread` - Core.Thread struct (if loaded)
+  - `:event` - Parsed Codex.Events struct
+  - `:raw_params` - Raw event parameters
+
+  This allows surface implementations to work universally with interaction/turn/thread
+  constructs and access the same amount of context regardless of the event type.
   """
   @fallback_to_any true
 
-  alias Piano.Core.Interaction
+  alias Piano.Surface.Context
 
   @doc """
   Called when a Codex turn starts processing.
   """
-  @spec on_turn_started(t(), Interaction.t(), map()) :: {:ok, term()} | {:ok, :noop}
-  def on_turn_started(surface, interaction, params)
+  @spec on_turn_started(t(), Context.t(), map()) :: {:ok, term()} | {:ok, :noop}
+  def on_turn_started(surface, context, params)
 
   @doc """
   Called when a Codex turn completes.
   """
-  @spec on_turn_completed(t(), Interaction.t(), map()) :: {:ok, term()} | {:ok, :noop}
-  def on_turn_completed(surface, interaction, params)
+  @spec on_turn_completed(t(), Context.t(), map()) :: {:ok, term()} | {:ok, :noop}
+  def on_turn_completed(surface, context, params)
 
   @doc """
   Called when an item (message, tool call, file change, etc.) starts.
   """
-  @spec on_item_started(t(), Interaction.t(), map()) :: {:ok, term()} | {:ok, :noop}
-  def on_item_started(surface, interaction, params)
+  @spec on_item_started(t(), Context.t(), map()) :: {:ok, term()} | {:ok, :noop}
+  def on_item_started(surface, context, params)
 
   @doc """
   Called when an item completes.
   """
-  @spec on_item_completed(t(), Interaction.t(), map()) :: {:ok, term()} | {:ok, :noop}
-  def on_item_completed(surface, interaction, params)
+  @spec on_item_completed(t(), Context.t(), map()) :: {:ok, term()} | {:ok, :noop}
+  def on_item_completed(surface, context, params)
 
   @doc """
   Called for streaming agent message updates (deltas).
   """
-  @spec on_agent_message_delta(t(), Interaction.t(), map()) :: {:ok, term()} | {:ok, :noop}
-  def on_agent_message_delta(surface, interaction, params)
+  @spec on_agent_message_delta(t(), Context.t(), map()) :: {:ok, term()} | {:ok, :noop}
+  def on_agent_message_delta(surface, context, params)
 
   @doc """
   Called when user approval is required for a tool call or file change.
   """
-  @spec on_approval_required(t(), Interaction.t(), map()) :: {:ok, term()} | {:ok, :noop}
-  def on_approval_required(surface, interaction, params)
+  @spec on_approval_required(t(), Context.t(), map()) :: {:ok, term()} | {:ok, :noop}
+  def on_approval_required(surface, context, params)
 
   @doc """
   Send a thread transcript to the surface.
@@ -76,11 +90,11 @@ end
 defimpl Piano.Surface, for: Any do
   @moduledoc false
 
-  def on_turn_started(_surface, _interaction, _params), do: {:ok, :noop}
-  def on_turn_completed(_surface, _interaction, _params), do: {:ok, :noop}
-  def on_item_started(_surface, _interaction, _params), do: {:ok, :noop}
-  def on_item_completed(_surface, _interaction, _params), do: {:ok, :noop}
-  def on_agent_message_delta(_surface, _interaction, _params), do: {:ok, :noop}
-  def on_approval_required(_surface, _interaction, _params), do: {:ok, :noop}
+  def on_turn_started(_surface, _context, _params), do: {:ok, :noop}
+  def on_turn_completed(_surface, _context, _params), do: {:ok, :noop}
+  def on_item_started(_surface, _context, _params), do: {:ok, :noop}
+  def on_item_completed(_surface, _context, _params), do: {:ok, :noop}
+  def on_agent_message_delta(_surface, _context, _params), do: {:ok, :noop}
+  def on_approval_required(_surface, _context, _params), do: {:ok, :noop}
   def send_thread_transcript(_surface, _thread_data), do: {:ok, :noop}
 end

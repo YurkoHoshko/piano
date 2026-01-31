@@ -153,16 +153,20 @@ defmodule Piano.Telegram.BotV2 do
     log_inbound(:command, msg, "/transcript")
     chat_id = msg.chat.id
 
-    case Handler.get_thread_transcript(chat_id) do
+    # Send placeholder and get message_id
+    {:ok, %{message_id: message_id}} = 
+      Piano.Telegram.Surface.send_message(chat_id, "⏳ Fetching transcript...")
+
+    case Handler.get_thread_transcript(chat_id, message_id) do
       {:ok, :pending} ->
-        answer(context, "⏳ Fetching transcript...")
+        :ok
 
       {:error, :no_thread} ->
-        answer(context, "No active thread found for this chat.")
+        Piano.Telegram.Surface.edit_message_text(chat_id, message_id, "No active thread found for this chat.")
 
       {:error, reason} ->
         Logger.error("Failed to get transcript: #{inspect(reason)}")
-        answer(context, "⚠️ Failed to get transcript.")
+        Piano.Telegram.Surface.edit_message_text(chat_id, message_id, "⚠️ Failed to get transcript.")
     end
   end
 

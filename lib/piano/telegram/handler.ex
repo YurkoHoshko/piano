@@ -9,10 +9,8 @@ defmodule Piano.Telegram.Handler do
 
   alias Piano.Core.Interaction
   alias Piano.Core.Thread
-  alias Piano.Telegram.API
   alias Piano.Telegram.ContextWindow
   alias Piano.Telegram.Surface, as: TelegramSurface
-  alias Piano.Telegram.Prompt
   alias Piano.Codex.Client, as: CodexClient
   alias Piano.Codex.RequestMap
 
@@ -35,9 +33,7 @@ defmodule Piano.Telegram.Handler do
         nil
       end
 
-    if not is_integer(chat_id) do
-      {:error, :invalid_chat_id}
-    else
+    if is_integer(chat_id) do
       chat_type = chat_type(msg)
       _ = ContextWindow.record(msg, text)
 
@@ -50,19 +46,7 @@ defmodule Piano.Telegram.Handler do
         end
 
         text = maybe_strip_bot_tag(text)
-        participants = get_participant_count(chat_id)
-        recent =
-          if chat_type in ["group", "supergroup"] do
-            ContextWindow.recent(chat_id,
-              mode: :since_last_tag_or_last_n,
-              limit: 15,
-              exclude_message_id: message_id(msg)
-            )
-          else
-            []
-          end
-
-        prompt = Prompt.build(msg, text, participants: participants, recent: recent)
+        prompt = TelegramSurface.prompt(msg, text)
 
         case maybe_handle_localhost_1455_link(chat_id, text) do
           :handled ->
@@ -71,24 +55,20 @@ defmodule Piano.Telegram.Handler do
           :not_handled ->
             with {:ok, reply_to} <- TelegramSurface.send_placeholder(chat_id),
                  {:ok, interaction} <- create_interaction(prompt, reply_to),
-                 {:ok, interaction} <- start_turn(interaction) do
+               {:ok, interaction} <- start_turn(interaction) do
               Logger.info("Telegram message processed",
                 chat_id: chat_id,
                 interaction_id: interaction.id
               )
 
-              {:ok, interaction}
+              {:ok, :processed}
             else
-              {:error, reason} = error ->
-                Logger.error("Failed to handle Telegram message",
-                  chat_id: chat_id,
-                  error: inspect(reason)
-                )
-
-                error
+              {:error, reason} -> {:error, reason}
             end
         end
       end
+    else
+      {:error, :invalid_chat_id}
     end
   end
 
@@ -190,13 +170,6 @@ defmodule Piano.Telegram.Handler do
     end
   end
 
-  defp get_participant_count(chat_id) when is_integer(chat_id) do
-    case API.get_chat_member_count(chat_id) do
-      {:ok, count} when is_integer(count) -> count
-      _ -> nil
-    end
-  end
-
   defp message_id(msg) when is_map(msg) do
     Map.get(msg, :message_id) || Map.get(msg, "message_id")
   end
@@ -212,21 +185,21 @@ defmodule Piano.Telegram.Handler do
       _ =
         case result do
           {:ok, status} ->
-            Piano.Telegram.API.send_message(
+            TelegramSurface.send_message(
               chat_id,
               "✅ localhost:1455 reachable (HTTP #{status}). No need to retry.",
               []
             )
 
           {:not_ok, status} ->
-            Piano.Telegram.API.send_message(
+            TelegramSurface.send_message(
               chat_id,
               "⚠️ localhost:1455 responded (HTTP #{status}). Retrying won't help unless the service changes.",
               []
             )
 
           {:error, reason} ->
-            Piano.Telegram.API.send_message(
+            TelegramSurface.send_message(
               chat_id,
               "❌ Can't reach localhost:1455 from the server (#{inspect(reason)}). Check that the service is running on port 1455.",
               []
@@ -317,12 +290,10 @@ defmodule Piano.Telegram.Handler do
   end
 
   @doc """
-  Request transcript for the current thread of a Telegram chat.
-  Returns {:ok, :pending} when request is sent, or {:error, reason} on failure.
-  The actual transcript is delivered asynchronously via Telegram.
+  Requests transcript from Codex and sends it when received.
   """
-  @spec get_thread_transcript(integer()) :: {:ok, :pending} | {:error, term()}
-  def get_thread_transcript(chat_id) do
+  @spec get_thread_transcript(integer(), integer()) :: {:ok, :pending} | {:error, term()}
+  def get_thread_transcript(chat_id, placeholder_message_id) do
     reply_to = "telegram:#{chat_id}"
 
     case find_recent_thread(reply_to) do
@@ -334,9 +305,10 @@ defmodule Piano.Telegram.Handler do
 
         :ok =
           RequestMap.put(request_id, %{
-            type: :telegram_thread_transcript,
+            type: :thread_transcript,
             chat_id: chat_id,
-            codex_thread_id: codex_thread_id
+            codex_thread_id: codex_thread_id,
+            placeholder_message_id: placeholder_message_id
           })
 
         :ok =

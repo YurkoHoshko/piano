@@ -1,16 +1,21 @@
 defmodule Piano.Pipeline.CodexEventProducer do
   @moduledoc """
   GenStage producer for Codex app-server events.
+
+  Events are enqueued as parsed structs from Piano.Codex.Events,
+  or as RPC responses for special handling.
   """
 
   use GenStage
   require Logger
   alias Broadway.Topology
 
+  @typedoc "An event can be a parsed struct or RPC response"
   @type event :: %{
-          method: String.t(),
-          params: map(),
-          partition_key: String.t() | nil
+          required(:type) => :event | :rpc_response,
+          optional(:event) => Piano.Codex.Events.event() | map(),
+          optional(:payload) => map(),
+          optional(:partition_key) => String.t() | nil
         }
 
   def start_link(opts \\ []) do
@@ -18,6 +23,12 @@ defmodule Piano.Pipeline.CodexEventProducer do
     GenStage.start_link(__MODULE__, opts, name: name)
   end
 
+  @doc """
+  Enqueue an event or RPC response to be processed.
+  
+  For events: %{type: :event, event: %Events.TurnStarted{}, partition_key: "..."}
+  For RPC: %{type: :rpc_response, payload: %{...}, partition_key: "..."}
+  """
   @spec enqueue(event()) :: :ok
   def enqueue(event) when is_map(event) do
     producers =

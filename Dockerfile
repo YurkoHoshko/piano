@@ -13,7 +13,7 @@ RUN apt-get update -y && apt-get install -y build-essential git curl \
     && apt-get clean && rm -f /var/lib/apt/lists/*_*
 
 # Prepare build dir
-WORKDIR /piano
+WORKDIR /piano/runtime
 
 # Install hex + rebar
 RUN mix local.hex --force && \
@@ -68,24 +68,34 @@ ENV LANG en_US.UTF-8
 ENV LANGUAGE en_US:en
 ENV LC_ALL en_US.UTF-8
 
-WORKDIR /piano
+WORKDIR /piano/runtime
 
 # Create a non-privileged user to run the app with passwordless sudo
 RUN useradd --create-home app && \
     echo "app ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-RUN mkdir -p /data /piano && chown app:app /data /piano
+RUN mkdir -p /data /piano/runtime /piano/agents && chown -R app:app /data /piano
+
+# Create mise directories with proper ownership for the app user
+RUN mkdir -p /home/app/.cache/mise /home/app/.local/share/mise && \
+    chown -R app:app /home/app/.cache /home/app/.local
+
+# Set mise environment variables for the app user
+ENV MISE_DATA_DIR="/home/app/.local/share/mise"
+ENV MISE_CACHE_DIR="/home/app/.cache/mise"
+ENV PATH="/home/app/.local/share/mise/shims:$PATH"
 
 # Set runner ENV
 ENV MIX_ENV="prod"
 ENV DATABASE_PATH="/data/piano.db"
-ENV CODEX_HOME="/piano/.codex"
+ENV CODEX_HOME="/piano/agents/.codex"
 
 # Copy the release from builder
-COPY --from=builder --chown=app:app /piano/_build/${MIX_ENV}/rel/piano ./
-COPY --chown=app:app .codex /piano/.codex
+COPY --from=builder --chown=app:app /piano/runtime/_build/${MIX_ENV}/rel/piano ./
+COPY --chown=app:app .codex /piano/agents/.codex
+COPY --chown=app:app .agents/AGENTS.md /piano/agents/AGENTS.md
 
 USER app
 
 # If using an environment that doesn't automatically reap zombie processes,
 # you may want to add tini or another entry point that can do that
-CMD ["/piano/bin/server"]
+CMD ["/piano/runtime/bin/server"]

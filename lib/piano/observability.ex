@@ -126,8 +126,7 @@ defmodule Piano.Observability do
         %{current_profile: current, profiles: profiles, codex_command: cmd} ->
           profiles_str =
             profiles
-            |> Enum.map(&Atom.to_string/1)
-            |> Enum.join(",")
+            |> Enum.map_join(",", &Atom.to_string/1)
 
           "codex=#{cmd} profile=#{current} profiles=[#{profiles_str}]"
 

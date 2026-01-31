@@ -27,9 +27,7 @@ defmodule Piano.Pipeline.CodexEventPipeline do
 
   @impl true
   def handle_message(_processor, message, _context) do
-    case Piano.Pipeline.CodexEventConsumer.process(message.data) do
-      :ok -> message
-      {:error, reason} -> Broadway.Message.failed(message, reason)
-    end
+    :ok = Piano.Pipeline.CodexEventConsumer.process(message.data)
+    message
   end
 end
