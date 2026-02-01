@@ -37,21 +37,12 @@ models:
     proxy: http://127.0.0.1:${PORT}
     checkEndpoint: /health
 
-  qwen3-vl-30b-instruct:
-    name: qwen3-vl-30b-instruct
-    cmd: |
-      llama-server ${network_flags} ${context_flags} ${qwen_coder_flags} --model /models/qwen3-vl-30b-instruct.gguf -ctk q8_0 -ctv q8_0 --threads 7 -amb 512 -ub 1024 -mqkv --mmproj /models/mmproj-qwen3-vl-30b-instruct.gguf --cpu-moe
-    env:
-      - CUDA_VISIBLE_DEVICES=0,1
-    proxy: http://127.0.0.1:${PORT}
-    checkEndpoint: /health
-
   gpt-oss-20b:
     name: gpt-oss-20b
     cmd: |
       llama-server ${network_flags} ${context_flags} ${gpt_oss_flags} --model /models/gpt-oss-20b
     env:
-      - CUDA_VISIBLE_DEVICES=0,1
+      - CUDA_VISIBLE_DEVICES=0
     aliases:
       - gpt-oss
     proxy: http://127.0.0.1:${PORT}
@@ -66,45 +57,75 @@ models:
     env:
       - CUDA_VISIBLE_DEVICES=0,1
 
-  qwen3-coder.gguf:
-    name: qwen3-coder.gguf
+  # xx
+  # Qwen3-ASR transcription model via vLLM (managed by llama-swap)
+  qwen3-asr-0.6b:
+    name: qwen3-asr-0.6b
     cmd: |
-      llama-server ${network_flags}  --cpu-moe ${context_flags} ${qwen_coder_flags} --jinja --model /models/qwen3-coder.gguf
+      python3 -m vllm.entrypoints.openai.api_server \
+        --model /models/qwen3-asr \
+        --served-model-name qwen3-asr-0.6b \
+        --host 0.0.0.0 \
+        --port ${PORT} \
+        --gpu-memory-utilization 0.3 \
+        --max-model-len 8192 \
+        --trust-remote-code \
+        --dtype bfloat16 \
+        --max-num-seqs 1
     proxy: http://127.0.0.1:${PORT}
     checkEndpoint: /health
     env:
-      - CUDA_VISIBLE_DEVICES=0,1
+      - CUDA_VISIBLE_DEVICES=1
+      - HF_HOME=/models/.cache/huggingface
+    aliases:
+      - asr
+      - transcription
 
-  nous-coder:
-    name: nous-coder
+  # Qwen3-VL-4B vision model via vLLM for OCR and image understanding
+  qwen3-vl-4b-vllm:
+    name: qwen3-vl-4b-vllm
     cmd: |
-      llama-server ${network_flags} ${context_flags} ${qwen_coder_flags} --jinja --model /models/nous-coder
+      python3 -m vllm.entrypoints.openai.api_server \
+        --model /models/qwen3-vl-vllm \
+        --served-model-name qwen3-vl-4b-vllm \
+        --host 0.0.0.0 \
+        --port ${PORT} \
+        --gpu-memory-utilization 0.9 \
+        --max-model-len 4096 \
+        --trust-remote-code \
+        --limit-mm-per-prompt '{"image": 4}' \
+        --dtype bfloat16
     proxy: http://127.0.0.1:${PORT}
     checkEndpoint: /health
     env:
-      - CUDA_VISIBLE_DEVICES=0,1
-      
-  devstral-small-2-24b-instruct:
-    name: devstral-small-2-24b-instruct
-    cmd: |
-      llama-server ${network_flags} ${context_flags} ${devstral_flags} --jinja --model /models/Devstral-Small-2-24B-Instruct-2512-IQ4_KSS.gguf
-    proxy: http://127.0.0.1:${PORT}
-    checkEndpoint: /health
-    env:
-      - CUDA_VISIBLE_DEVICES=0,1
-
-  qwen3-vl-4b:
-    name: qwen3-vl-4b
-    cmd: |
-      llama-server ${network_flags} ${context_flags} ${vision_flags} --jinja --model /models/qwen3-vl-4b.gguf --mmproj /models/mmproj-qwen3-vl-4b.gguf -ngl -1 -ctk q8_0 -ctv q8_0 --jinja -v -rtr -amb 512 -ub 1024 -mqkv -c 4096
-    proxy: http://127.0.0.1:${PORT}
-    checkEndpoint: /health
-    env:
-      - CUDA_VISIBLE_DEVICES=0,1
+      - CUDA_VISIBLE_DEVICES=1
+      - HF_HOME=/models/.cache/huggingface
     aliases:
       - vision
+      - vl
+      - ocr
 
-# hooks:
-#   on_startup:
-#     preload:
-#       - vision
+groups:
+  # GPU 0: llama.cpp models (gpt-oss, glm, etc) - swap between them
+  gpu0-llama:
+    swap: true
+    exclusive: false
+    members:
+      - gpt-oss-20b
+      - gpt-oss-120b
+      - glm-47-flash
+      - glm-47-flash-q
+
+  # GPU 1: vLLM models (vision, ASR) - can run together, no swapping
+  gpu1-vllm:
+    swap: false
+    exclusive: false
+    members:
+      - qwen3-vl-4b-vllm
+      - qwen3-asr-0.6b
+
+hooks:
+  on_startup:
+    preload:
+      - gpt-oss-20b
+      - qwen3-vl-4b-vllm

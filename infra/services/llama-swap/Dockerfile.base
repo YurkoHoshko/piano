@@ -1,0 +1,13 @@
+# Base CUDA image with build/runtime deps for llama.cpp and llama-swap.
+FROM nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04
+
+RUN set -eux; \
+    apt-get update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      cmake \
+      ccache \
+      git \
+      libsqlite3-dev; \
+    rm -rf /var/lib/apt/lists/*

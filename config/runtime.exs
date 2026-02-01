@@ -58,4 +58,10 @@ if config_env() == :prod do
     enabled: telegram_token != nil
 
   config :ex_gram, token: telegram_token
+
+  # Transcription service configuration (Qwen3-ASR via Pythonx)
+  config :piano, :transcription,
+    enabled: System.get_env("TRANSCRIPTION_ENABLED", "true") == "true",
+    model: System.get_env("TRANSCRIPTION_MODEL", "Qwen/Qwen3-ASR-0.6B"),
+    use_local: System.get_env("TRANSCRIPTION_USE_LOCAL", "true") == "true"
 end

@@ -22,6 +22,12 @@ defmodule Piano.Core.Interaction do
       allow_nil? false
     end
 
+    attribute :image_paths, {:array, :string} do
+      allow_nil? true
+      default []
+      description "Local image paths to include with the message"
+    end
+
     attribute :reply_to, :string do
       allow_nil? false
 
@@ -54,7 +60,7 @@ defmodule Piano.Core.Interaction do
 
     create :create do
       primary? true
-      accept [:original_message, :reply_to]
+      accept [:original_message, :reply_to, :image_paths]
 
       argument :thread_id, :uuid, allow_nil?: true
 

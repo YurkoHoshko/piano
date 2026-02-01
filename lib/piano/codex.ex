@@ -199,7 +199,13 @@ defmodule Piano.Codex do
   end
 
   defp request_turn_start(interaction, thread, client) do
-    input = [%{type: "text", text: interaction.original_message}]
+    text_input = [%{type: "text", text: interaction.original_message}]
+
+    image_inputs =
+      (interaction.image_paths || [])
+      |> Enum.map(fn path -> %{type: "localImage", path: path} end)
+
+    input = text_input ++ image_inputs
 
     params = %{
       threadId: thread.codex_thread_id,

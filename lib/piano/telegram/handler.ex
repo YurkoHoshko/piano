@@ -109,10 +109,11 @@ defmodule Piano.Telegram.Handler do
   Similar to handle_message but includes intake folder path in the context
   so the agent knows about available files.
   """
-  @spec handle_message_with_intake(map(), String.t(), String.t()) ::
+  @spec handle_message_with_intake(map(), String.t(), String.t(), keyword()) ::
           {:ok, term()} | {:error, term()}
-  def handle_message_with_intake(msg, prompt, intake_path) when is_map(msg) do
+  def handle_message_with_intake(msg, prompt, intake_path, opts \\ []) when is_map(msg) do
     chat = Map.get(msg, :chat) || Map.get(msg, "chat")
+    image_paths = Keyword.get(opts, :image_paths, [])
 
     chat_id =
       if is_map(chat) do
@@ -134,12 +135,13 @@ defmodule Piano.Telegram.Handler do
       All files sent by the user are available in this folder for processing.
       """
 
-      with {:ok, interaction} <- create_interaction(full_prompt, reply_to),
+      with {:ok, interaction} <- create_interaction(full_prompt, reply_to, image_paths: image_paths),
            {:ok, interaction} <- start_turn(interaction) do
         Logger.info("Telegram file message processed",
           chat_id: chat_id,
           interaction_id: interaction.id,
-          intake_path: intake_path
+          intake_path: intake_path,
+          image_paths: image_paths
         )
 
         {:ok, interaction}
@@ -180,8 +182,9 @@ defmodule Piano.Telegram.Handler do
     end
   end
 
-  defp create_interaction(text, reply_to) do
-    Ash.create(Interaction, %{original_message: text, reply_to: reply_to}, action: :create)
+  defp create_interaction(text, reply_to, opts \\ []) do
+    image_paths = Keyword.get(opts, :image_paths, [])
+    Ash.create(Interaction, %{original_message: text, reply_to: reply_to, image_paths: image_paths}, action: :create)
   end
 
   defp chat_type(msg) when is_map(msg) do

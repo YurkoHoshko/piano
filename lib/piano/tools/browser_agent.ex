@@ -475,9 +475,15 @@ defmodule Piano.Tools.BrowserAgent do
   defp html_to_markdown(html) do
     case Floki.parse_document(html) do
       {:ok, document} ->
+        # Find body element, fallback to document if no body exists
+        body =
+          case Floki.find(document, "body") do
+            [] -> document
+            [body_element | _] -> body_element
+          end
+
         markdown =
-          document
-          |> Floki.find("body")
+          body
           |> Floki.children()
           |> Enum.map_join("\n\n", &element_to_markdown/1)
           |> normalize_whitespace()

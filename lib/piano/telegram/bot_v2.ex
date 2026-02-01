@@ -219,7 +219,11 @@ defmodule Piano.Telegram.BotV2 do
       "web_fetch",
       "web_extract_text",
       "web_extract_markdown",
-      "web_extract_structured"
+      "web_extract_structured",
+      "voice_transcribe",
+      "vision_analyze",
+      "vision_describe",
+      "vision_extract_text"
     ]
 
     tool_list = Enum.map_join(tools, "\n", fn t -> "  • #{t}" end)
@@ -259,23 +263,25 @@ defmodule Piano.Telegram.BotV2 do
   end
 
   # Handle file/media messages (photos, documents, videos, audio, voice)
-  def handle({:photo, photo_sizes, msg}, context) do
+  # ExGram dispatches these as {:message, msg} - we pattern match on message fields
+  def handle({:message, %{photo: photo_sizes} = msg}, context)
+      when is_list(photo_sizes) and photo_sizes != [] do
     handle_file_message(:photo, photo_sizes, msg, context)
   end
 
-  def handle({:document, document, msg}, context) do
+  def handle({:message, %{document: document} = msg}, context) when not is_nil(document) do
     handle_file_message(:document, document, msg, context)
   end
 
-  def handle({:video, video, msg}, context) do
+  def handle({:message, %{video: video} = msg}, context) when not is_nil(video) do
     handle_file_message(:video, video, msg, context)
   end
 
-  def handle({:audio, audio, msg}, context) do
+  def handle({:message, %{audio: audio} = msg}, context) when not is_nil(audio) do
     handle_file_message(:audio, audio, msg, context)
   end
 
-  def handle({:voice, voice, msg}, context) do
+  def handle({:message, %{voice: voice} = msg}, context) when not is_nil(voice) do
     handle_file_message(:voice, voice, msg, context)
   end
 
@@ -292,9 +298,9 @@ defmodule Piano.Telegram.BotV2 do
     file_id = extract_file_id(file_type, file_info)
 
     if file_id do
-      # Send acknowledgment
-      %ExGram.Cnt{message: %{message_id: ack_msg_id}} =
-        answer(context, "📎 Processing #{file_type}...")
+      # Send acknowledgment - use Telegram API directly to get message_id
+      {:ok, ack_msg} = TelegramSurface.send_message(chat_id, "📎 Processing #{file_type}...")
+      ack_msg_id = ack_msg.message_id
 
       # Create intake folder for this interaction
       interaction_id = "#{msg.message_id}_#{:erlang.unique_integer([:positive])}"
@@ -415,19 +421,38 @@ defmodule Piano.Telegram.BotV2 do
   defp file_extension(_, _), do: ".bin"
 
   defp build_file_prompt(file_type, file_path, caption, intake_context) do
-    base = "📎 User sent a #{file_type} file"
-    with_caption = if caption != "", do: "#{base} with caption: #{caption}", else: base
+    type_hint = file_type_hint(file_type)
+
+    base =
+      case file_type do
+        :voice -> "🎤 User sent a voice message"
+        :audio -> "🎵 User sent an audio file"
+        :photo -> "📷 User sent a photo"
+        :video -> "🎬 User sent a video"
+        _ -> "📎 User sent a #{file_type} file"
+      end
+
+    with_caption = if caption != "", do: "#{base} with caption: \"#{caption}\"", else: base
 
     """
     #{with_caption}
 
-    File location: `#{file_path}`
+    **File:** `#{file_path}`
 
     #{intake_context}
 
-    Please process this file as requested by the user.
+    #{type_hint}
     """
   end
+
+  defp file_type_hint(:voice), do: "Use voice_transcribe tool to transcribe this audio to text."
+  defp file_type_hint(:audio), do: "Use voice_transcribe tool to transcribe this audio to text."
+
+  defp file_type_hint(:photo),
+    do:
+      "Use vision tools to analyze this image: vision_analyze (ask specific question), vision_describe (general description), or vision_extract_text (OCR)."
+
+  defp file_type_hint(_), do: "Process this file as appropriate for the user's request."
 
   defp new_request_id do
     :erlang.unique_integer([:positive, :monotonic])

@@ -8,13 +8,21 @@ defmodule Piano.Intake do
 
   require Logger
 
-  @intake_base_dir ".agents/intake"
-
   @doc """
   Gets the base intake directory path.
+  Uses the agents directory (mounted as /piano/agents in Docker) so files are
+  accessible to both the app and the Codex agent.
   """
   @spec base_dir() :: String.t()
-  def base_dir, do: @intake_base_dir
+  def base_dir do
+    # In production (Docker), use /piano/agents/intake
+    # In dev, use .agents/intake relative to the project root
+    if File.dir?("/piano/agents") do
+      "/piano/agents/intake"
+    else
+      ".agents/intake"
+    end
+  end
 
   @doc """
   Creates an intake folder for a specific interaction.
@@ -22,7 +30,7 @@ defmodule Piano.Intake do
   """
   @spec create_interaction_folder(String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def create_interaction_folder(surface, interaction_id) do
-    path = Path.join([@intake_base_dir, sanitize(surface), sanitize(interaction_id)])
+    path = Path.join([base_dir(), sanitize(surface), sanitize(interaction_id)])
 
     case File.mkdir_p(path) do
       :ok ->

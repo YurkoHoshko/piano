@@ -198,6 +198,29 @@ defmodule Piano.Codex.Events do
           }
   end
 
+  defmodule UserMessage do
+    @moduledoc "Legacy v1 event: User message received (includes images)."
+    defstruct [
+      :turn_id,
+      :thread_id,
+      :message,
+      :images,
+      :local_images,
+      :text_elements,
+      :raw_params
+    ]
+
+    @type t :: %__MODULE__{
+            turn_id: String.t(),
+            thread_id: String.t(),
+            message: String.t(),
+            images: list(map()),
+            local_images: list(map()),
+            text_elements: list(map()),
+            raw_params: map()
+          }
+  end
+
   defmodule AgentMessageDelta do
     @moduledoc "Streaming content delta for agent messages."
     defstruct [:item_id, :turn_id, :delta, :raw_params]
@@ -475,6 +498,12 @@ defmodule Piano.Codex.Events do
   end
 
   defp parse_event(method, params) do
+    if Application.get_env(:piano, :log_codex_event_debug, false) do
+      Logger.debug(
+        "DEBUG: Parsing event method=#{inspect(method, limit: 200)} is_binary=#{is_binary(method)} bytes=#{if is_binary(method), do: :binary.bin_to_list(method), else: :not_binary}"
+      )
+    end
+
     case method do
       # Turn events - IDs are at top level
       "turn/started" ->
@@ -713,6 +742,19 @@ defmodule Piano.Codex.Events do
            turn_id: params["id"],
            thread_id: params["conversationId"],
            message: get_in(params, ["msg", "message"]),
+           raw_params: params
+         }}
+
+      # Legacy v1 user message event (includes images)
+      "codex/event/user_message" ->
+        {:ok,
+         %UserMessage{
+           turn_id: params["id"],
+           thread_id: params["conversationId"],
+           message: get_in(params, ["msg", "message"]),
+           images: get_in(params, ["msg", "images"]) || [],
+           local_images: get_in(params, ["msg", "local_images"]) || [],
+           text_elements: get_in(params, ["msg", "text_elements"]) || [],
            raw_params: params
          }}
 
