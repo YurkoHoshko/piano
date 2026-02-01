@@ -226,76 +226,85 @@ defmodule Piano.Tools.BrowserAgent do
 
   @impl true
   def handle_call({:click, selector}, _from, state) do
-    try do
-      new_session =
-        state.session
-        |> Browser.click(Query.css(selector))
+    new_session =
+      state.session
+      |> Browser.click(Query.css(selector))
 
-      # Wait for page to settle after click
-      Process.sleep(500)
+    # Wait for page to settle after click
+    Process.sleep(500)
 
-      new_state = %{state | session: new_session}
-      {:reply, :ok, new_state}
-    rescue
-      e ->
-        Logger.warning("Click failed for selector '#{selector}': #{inspect(e)}")
-        {:reply, {:error, "Click failed: #{inspect(e)}"}, state}
-    end
+    new_state = %{state | session: new_session}
+    {:reply, :ok, new_state}
+  rescue
+    e ->
+      Logger.warning("Click failed for selector '#{selector}': #{inspect(e)}")
+      {:reply, {:error, "Click failed: #{inspect(e)}"}, state}
   end
 
   @impl true
   def handle_call({:input, selector, text}, _from, state) do
-    try do
-      new_session =
-        state.session
-        |> Browser.fill_in(Query.css(selector), with: text)
+    new_session =
+      state.session
+      |> Browser.fill_in(Query.css(selector), with: text)
 
-      new_state = %{state | session: new_session}
-      {:reply, :ok, new_state}
-    rescue
-      e ->
-        Logger.warning("Input failed for selector '#{selector}': #{inspect(e)}")
-        {:reply, {:error, "Input failed: #{inspect(e)}"}, state}
-    end
+    new_state = %{state | session: new_session}
+    {:reply, :ok, new_state}
+  rescue
+    e ->
+      Logger.warning("Input failed for selector '#{selector}': #{inspect(e)}")
+      {:reply, {:error, "Input failed: #{inspect(e)}"}, state}
   end
 
   @impl true
   def handle_call({:clear_input, selector}, _from, state) do
-    try do
-      new_session =
-        state.session
-        |> Browser.clear(Query.css(selector))
+    new_session =
+      state.session
+      |> Browser.clear(Query.css(selector))
 
-      new_state = %{state | session: new_session}
-      {:reply, :ok, new_state}
-    rescue
-      e ->
-        Logger.warning("Clear failed for selector '#{selector}': #{inspect(e)}")
-        {:reply, {:error, "Clear failed: #{inspect(e)}"}, state}
-    end
+    new_state = %{state | session: new_session}
+    {:reply, :ok, new_state}
+  rescue
+    e ->
+      Logger.warning("Clear failed for selector '#{selector}': #{inspect(e)}")
+      {:reply, {:error, "Clear failed: #{inspect(e)}"}, state}
   end
 
   @impl true
-  def handle_call({:screenshot, path}, _from, state) do
-    try do
-      # Use Wallaby's take_screenshot (saves to default location)
-      new_session = Browser.take_screenshot(state.session)
+  def handle_call({:screenshot, _path}, _from, state) do
+    # Generate proper screenshot path
+    screenshot_dir = "/piano/agents/mcp-outputs/screenshots"
+    File.mkdir_p!(screenshot_dir)
 
-      # Get the screenshot path from the session
-      screenshot_path = List.first(new_session.screenshots)
+    timestamp = System.os_time(:millisecond)
+    target_path = "#{screenshot_dir}/screenshot_#{timestamp}.png"
 
-      new_state = %{state | session: new_session}
+    # Use Wallaby's take_screenshot (saves to default location)
+    new_session = Browser.take_screenshot(state.session)
 
-      if screenshot_path && File.exists?(screenshot_path) do
-        {:reply, {:ok, screenshot_path}, new_state}
-      else
-        {:reply, {:error, "Screenshot not created"}, new_state}
+    # Get the screenshot path from Wallaby's default location
+    wallaby_path = List.first(new_session.screenshots)
+
+    new_state = %{state | session: new_session}
+
+    if wallaby_path && File.exists?(wallaby_path) do
+      # Copy from Wallaby's location to our target location
+      case File.cp(wallaby_path, target_path) do
+        :ok ->
+          Logger.info("Screenshot saved", path: target_path)
+          {:reply, {:ok, target_path}, new_state}
+
+        {:error, reason} ->
+          Logger.warning("Failed to copy screenshot: #{inspect(reason)}")
+          # Return Wallaby's path as fallback
+          {:reply, {:ok, wallaby_path}, new_state}
       end
-    rescue
-      e ->
-        Logger.warning("Screenshot failed: #{inspect(e)}")
-        {:reply, {:error, "Screenshot failed: #{inspect(e)}"}, state}
+    else
+      {:reply, {:error, "Screenshot not created"}, new_state}
     end
+  rescue
+    e ->
+      Logger.warning("Screenshot failed: #{inspect(e)}")
+      {:reply, {:error, "Screenshot failed: #{inspect(e)}"}, state}
   end
 
   @impl true
@@ -306,115 +315,105 @@ defmodule Piano.Tools.BrowserAgent do
 
   @impl true
   def handle_call({:execute_script, script, args}, _from, state) do
-    try do
-      {result, new_session} = Browser.execute_script(state.session, script, args)
-      new_state = %{state | session: new_session}
-      {:reply, {:ok, result}, new_state}
-    rescue
-      e ->
-        Logger.warning("Script execution failed: #{inspect(e)}")
-        {:reply, {:error, "Script execution failed: #{inspect(e)}"}, state}
-    end
+    {result, new_session} = Browser.execute_script(state.session, script, args)
+    new_state = %{state | session: new_session}
+    {:reply, {:ok, result}, new_state}
+  rescue
+    e ->
+      Logger.warning("Script execution failed: #{inspect(e)}")
+      {:reply, {:error, "Script execution failed: #{inspect(e)}"}, state}
   end
 
   @impl true
   def handle_call({:load_cookies, cookies_or_path}, _from, state) do
-    try do
-      cookies =
-        if is_binary(cookies_or_path) && File.exists?(cookies_or_path) do
-          cookies_or_path
-          |> File.read!()
-          |> Jason.decode!()
-        else
-          cookies_or_path
-        end
+    cookies =
+      if is_binary(cookies_or_path) && File.exists?(cookies_or_path) do
+        cookies_or_path
+        |> File.read!()
+        |> Jason.decode!()
+      else
+        cookies_or_path
+      end
 
-      new_session =
-        Enum.reduce(cookies, state.session, fn cookie, session ->
-          Browser.set_cookie(
-            session,
-            cookie["name"] || cookie[:name],
-            cookie["value"] || cookie[:value],
-            domain: cookie["domain"] || cookie[:domain],
-            path: cookie["path"] || cookie[:path] || "/",
-            secure: cookie["secure"] || cookie[:secure] || false,
-            http_only: cookie["httpOnly"] || cookie[:http_only] || false
-          )
-        end)
+    new_session =
+      Enum.reduce(cookies, state.session, fn cookie, session ->
+        Browser.set_cookie(
+          session,
+          cookie["name"] || cookie[:name],
+          cookie["value"] || cookie[:value],
+          domain: cookie["domain"] || cookie[:domain],
+          path: cookie["path"] || cookie[:path] || "/",
+          secure: cookie["secure"] || cookie[:secure] || false,
+          http_only: cookie["httpOnly"] || cookie[:http_only] || false
+        )
+      end)
 
-      new_state = %{state | session: new_session, cookies: cookies}
-      {:reply, :ok, new_state}
-    rescue
-      e ->
-        Logger.warning("Failed to load cookies: #{inspect(e)}")
-        {:reply, {:error, "Failed to load cookies: #{inspect(e)}"}, state}
-    end
+    new_state = %{state | session: new_session, cookies: cookies}
+    {:reply, :ok, new_state}
+  rescue
+    e ->
+      Logger.warning("Failed to load cookies: #{inspect(e)}")
+      {:reply, {:error, "Failed to load cookies: #{inspect(e)}"}, state}
   end
 
   @impl true
   def handle_call({:save_cookies, path}, _from, state) do
-    try do
-      # Get cookies via JavaScript
-      script = """
-      return document.cookie.split(';').map(function(c) {
-        var parts = c.trim().split('=');
-        return {name: parts[0], value: parts[1] || '', domain: window.location.hostname, path: '/'};
-      });
-      """
+    # Get cookies via JavaScript
+    script = """
+    return document.cookie.split(';').map(function(c) {
+      var parts = c.trim().split('=');
+      return {name: parts[0], value: parts[1] || '', domain: window.location.hostname, path: '/'};
+    });
+    """
 
-      {cookies, new_session} = Browser.execute_script(state.session, script, [])
+    {cookies, new_session} = Browser.execute_script(state.session, script, [])
 
-      File.write!(path, Jason.encode!(cookies, pretty: true))
+    File.write!(path, Jason.encode!(cookies, pretty: true))
 
-      new_state = %{state | session: new_session, cookies: cookies}
-      {:reply, {:ok, cookies}, new_state}
-    rescue
-      e ->
-        Logger.warning("Failed to save cookies: #{inspect(e)}")
-        {:reply, {:error, "Failed to save cookies: #{inspect(e)}"}, state}
-    end
+    new_state = %{state | session: new_session, cookies: cookies}
+    {:reply, {:ok, cookies}, new_state}
+  rescue
+    e ->
+      Logger.warning("Failed to save cookies: #{inspect(e)}")
+      {:reply, {:error, "Failed to save cookies: #{inspect(e)}"}, state}
   end
 
   @impl true
   def handle_call(:get_cookies, _from, state) do
-    try do
-      script = """
-      return document.cookie.split(';').map(function(c) {
-        var parts = c.trim().split('=');
-        return {name: parts[0], value: parts[1] || ''};
-      });
-      """
+    script = """
+    return document.cookie.split(';').map(function(c) {
+      var parts = c.trim().split('=');
+      return {name: parts[0], value: parts[1] || ''};
+    });
+    """
 
-      {cookies, new_session} = Browser.execute_script(state.session, script, [])
-      new_state = %{state | session: new_session, cookies: cookies}
-      {:reply, {:ok, cookies}, new_state}
-    rescue
-      e ->
-        Logger.warning("Failed to get cookies: #{inspect(e)}")
-        {:reply, {:error, "Failed to get cookies: #{inspect(e)}"}, state}
-    end
+    {cookies, new_session} = Browser.execute_script(state.session, script, [])
+    new_state = %{state | session: new_session, cookies: cookies}
+    {:reply, {:ok, cookies}, new_state}
+  rescue
+    e ->
+      Logger.warning("Failed to get cookies: #{inspect(e)}")
+      {:reply, {:error, "Failed to get cookies: #{inspect(e)}"}, state}
   end
 
   @impl true
   def handle_call({:find_elements, selector}, _from, state) do
-    try do
-      elements = Browser.all(state.session, Query.css(selector))
+    elements = Browser.all(state.session, Query.css(selector))
 
-      element_info =
-        Enum.map(elements, fn el ->
-          %{
-            id: Browser.attr(el, Query.css("#"), "id"),
-            class: Browser.attr(el, Query.css("."), "class"),
-            text: Browser.text(el)
-          }
-        end)
+    element_info =
+      Enum.map(elements, fn el ->
+        %{
+          id: Browser.attr(el, Query.css("#"), "id"),
+          class: Browser.attr(el, Query.css("."), "class"),
+          text: Browser.text(el)
+        }
+      end)
 
-      {:reply, {:ok, element_info}, state}
-    rescue
-      e ->
-        Logger.warning("Find elements failed for selector '#{selector}': #{inspect(e)}")
-        {:reply, {:error, "Find failed: #{inspect(e)}"}, state}
-    end
+    {:reply, {:ok, element_info}, state}
+  rescue
+    e ->
+      Logger.warning("Find elements failed for selector '#{selector}': #{inspect(e)}")
+      {:reply, {:error, "Find failed: #{inspect(e)}"}, state}
   end
 
   @impl true
@@ -480,8 +479,7 @@ defmodule Piano.Tools.BrowserAgent do
           document
           |> Floki.find("body")
           |> Floki.children()
-          |> Enum.map(&element_to_markdown/1)
-          |> Enum.join("\n\n")
+          |> Enum.map_join("\n\n", &element_to_markdown/1)
           |> normalize_whitespace()
 
         {:ok, markdown}
@@ -571,16 +569,16 @@ defmodule Piano.Tools.BrowserAgent do
   defp element_to_markdown({"ul", _attrs, children}) do
     children
     |> Enum.filter(fn el -> match?({"li", _, _}, el) end)
-    |> Enum.map(fn {"li", _, li_children} -> "- " <> Floki.text(li_children) end)
-    |> Enum.join("\n")
+    |> Enum.map_join("\n", fn {"li", _, li_children} -> "- " <> Floki.text(li_children) end)
   end
 
   defp element_to_markdown({"ol", _attrs, children}) do
     children
     |> Enum.filter(fn el -> match?({"li", _, _}, el) end)
     |> Enum.with_index(1)
-    |> Enum.map(fn {{"li", _, li_children}, i} -> "#{i}. " <> Floki.text(li_children) end)
-    |> Enum.join("\n")
+    |> Enum.map_join("\n", fn {{"li", _, li_children}, i} ->
+      "#{i}. " <> Floki.text(li_children)
+    end)
   end
 
   defp element_to_markdown({"blockquote", _attrs, children}) do
@@ -604,11 +602,6 @@ defmodule Piano.Tools.BrowserAgent do
     |> String.replace(~r/[ \t]+/, " ")
     |> String.replace(~r/\n{3,}/, "\n\n")
     |> String.trim()
-  end
-
-  defp generate_screenshot_path do
-    timestamp = System.os_time(:millisecond)
-    ".agents/browser-agent/screenshots/screenshot_#{timestamp}.png"
   end
 
   defp load_config_from_file(state, path) do

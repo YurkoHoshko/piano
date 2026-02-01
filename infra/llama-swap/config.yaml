@@ -16,7 +16,8 @@ macros:
     --temp 0.2 --top-k 50 --top-p 0.95 --min-p 0.01 --dry-multiplier 1.1
   glm_q_flags: >
     --temp 0.7 --top-p 1.0 --min-p 0.01 --dry-multiplier 1.1
-
+  vision_flags: >
+    --temp 0.03 --min-p 0.01 --top-p 0.8 --top-k 20 -c 16384 --repeat-penalty 1.1 --presence-penalty 1.5
 models:
   glm-47-flash:
     name: glm-47-flash
@@ -31,6 +32,15 @@ models:
     name: glm-47-flash-q
     cmd: |
       llama-server ${network_flags} ${context_flags} ${glm_q_flags} --model /models/glm-47-flash-q
+    env:
+      - CUDA_VISIBLE_DEVICES=0,1
+    proxy: http://127.0.0.1:${PORT}
+    checkEndpoint: /health
+
+  qwen3-vl-30b-instruct:
+    name: qwen3-vl-30b-instruct
+    cmd: |
+      llama-server ${network_flags} ${context_flags} ${qwen_coder_flags} --model /models/qwen3-vl-30b-instruct.gguf -ctk q8_0 -ctv q8_0 --threads 7 -amb 512 -ub 1024 -mqkv --mmproj /models/mmproj-qwen3-vl-30b-instruct.gguf --cpu-moe
     env:
       - CUDA_VISIBLE_DEVICES=0,1
     proxy: http://127.0.0.1:${PORT}
@@ -83,7 +93,18 @@ models:
     env:
       - CUDA_VISIBLE_DEVICES=0,1
 
-hooks:
-  on_startup:
-    preload:
-      - glm-47-flash
+  qwen3-vl-4b:
+    name: qwen3-vl-4b
+    cmd: |
+      llama-server ${network_flags} ${context_flags} ${vision_flags} --jinja --model /models/qwen3-vl-4b.gguf --mmproj /models/mmproj-qwen3-vl-4b.gguf -ngl -1 -ctk q8_0 -ctv q8_0 --jinja -v -rtr -amb 512 -ub 1024 -mqkv -c 4096
+    proxy: http://127.0.0.1:${PORT}
+    checkEndpoint: /health
+    env:
+      - CUDA_VISIBLE_DEVICES=0,1
+    aliases:
+      - vision
+
+# hooks:
+#   on_startup:
+#     preload:
+#       - vision

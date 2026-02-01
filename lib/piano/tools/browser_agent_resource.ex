@@ -6,7 +6,7 @@ defmodule Piano.Tools.BrowserAgentResource do
   browser automation as Ash actions that can be called via MCP.
   """
 
-  use Ash.Resource
+  use Ash.Resource, domain: nil
 
   alias Piano.Tools.BrowserAgent
 

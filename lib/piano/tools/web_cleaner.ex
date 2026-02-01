@@ -68,9 +68,8 @@ defmodule Piano.Tools.WebCleaner do
     format = Keyword.get(opts, :format, :text)
     timeout = Keyword.get(opts, :timeout, 30_000)
 
-    with {:ok, html} <- fetch(url, timeout),
-         {:ok, cleaned} <- clean(html, format) do
-      {:ok, cleaned}
+    with {:ok, html} <- fetch(url, timeout) do
+      clean(html, format)
     end
   end
 
@@ -136,22 +135,20 @@ defmodule Piano.Tools.WebCleaner do
     # First, look for semantic tags
     preferred = Enum.flat_map(@preferred_tags, &Floki.find(document, &1))
 
-    cond do
-      length(preferred) > 0 ->
-        # Use the largest preferred container
-        preferred
-        |> Enum.max_by(fn el ->
-          el
-          |> Floki.text()
-          |> String.length()
-        end)
-
-      true ->
-        # Score all containers and pick the best one
-        document
-        |> score_containers()
-        |> Enum.max_by(fn {_el, score} -> score end)
-        |> elem(0)
+    if preferred != [] do
+      # Use the largest preferred container
+      preferred
+      |> Enum.max_by(fn el ->
+        el
+        |> Floki.text()
+        |> String.length()
+      end)
+    else
+      # Score all containers and pick the best one
+      document
+      |> score_containers()
+      |> Enum.max_by(fn {_el, score} -> score end)
+      |> elem(0)
     end
   end
 
@@ -165,8 +162,7 @@ defmodule Piano.Tools.WebCleaner do
       link_text =
         el
         |> Floki.find("a")
-        |> Enum.map(&Floki.text/1)
-        |> Enum.join(" ")
+        |> Enum.map_join(" ", &Floki.text/1)
 
       text_len = String.length(text)
       link_len = String.length(link_text)
@@ -207,8 +203,7 @@ defmodule Piano.Tools.WebCleaner do
     markdown =
       element
       |> Floki.children()
-      |> Enum.map(&to_markdown/1)
-      |> Enum.join("\n\n")
+      |> Enum.map_join("\n\n", &to_markdown/1)
       |> normalize_whitespace()
 
     {:ok, markdown}
@@ -239,16 +234,16 @@ defmodule Piano.Tools.WebCleaner do
   defp to_markdown({"ul", _attrs, children}) do
     children
     |> Enum.filter(fn el -> match?({"li", _, _}, el) end)
-    |> Enum.map(fn {"li", _, li_children} -> "- " <> Floki.text(li_children) end)
-    |> Enum.join("\n")
+    |> Enum.map_join("\n", fn {"li", _, li_children} -> "- " <> Floki.text(li_children) end)
   end
 
   defp to_markdown({"ol", _attrs, children}) do
     children
     |> Enum.filter(fn el -> match?({"li", _, _}, el) end)
     |> Enum.with_index(1)
-    |> Enum.map(fn {{"li", _, li_children}, i} -> "#{i}. " <> Floki.text(li_children) end)
-    |> Enum.join("\n")
+    |> Enum.map_join("\n", fn {{"li", _, li_children}, i} ->
+      "#{i}. " <> Floki.text(li_children)
+    end)
   end
 
   defp to_markdown({"blockquote", _attrs, children}) do

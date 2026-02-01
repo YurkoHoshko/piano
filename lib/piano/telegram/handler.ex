@@ -104,6 +104,54 @@ defmodule Piano.Telegram.Handler do
   end
 
   @doc """
+  Handle a message that includes file intake.
+
+  Similar to handle_message but includes intake folder path in the context
+  so the agent knows about available files.
+  """
+  @spec handle_message_with_intake(map(), String.t(), String.t()) ::
+          {:ok, term()} | {:error, term()}
+  def handle_message_with_intake(msg, prompt, intake_path) when is_map(msg) do
+    chat = Map.get(msg, :chat) || Map.get(msg, "chat")
+
+    chat_id =
+      if is_map(chat) do
+        Map.get(chat, :id) || Map.get(chat, "id")
+      else
+        nil
+      end
+
+    if is_integer(chat_id) do
+      _ = ContextWindow.record(msg, "[File with caption: #{String.slice(prompt, 0, 100)}...]")
+
+      reply_to = TelegramSurface.build_reply_to(chat_id, msg.message_id)
+
+      # Include intake path info in the prompt
+      full_prompt = """
+      #{prompt}
+
+      📁 **Intake Folder:** `#{intake_path}`
+      All files sent by the user are available in this folder for processing.
+      """
+
+      with {:ok, interaction} <- create_interaction(full_prompt, reply_to),
+           {:ok, interaction} <- start_turn(interaction) do
+        Logger.info("Telegram file message processed",
+          chat_id: chat_id,
+          interaction_id: interaction.id,
+          intake_path: intake_path
+        )
+
+        {:ok, interaction}
+      else
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :invalid_chat_id}
+    end
+  end
+
+  @doc """
   Force-start a new Codex thread for a Telegram chat.
   """
   @spec force_new_thread(integer()) :: {:ok, term()} | {:error, term()}
@@ -298,7 +346,7 @@ defmodule Piano.Telegram.Handler do
   """
   @spec get_thread_transcript(integer(), integer()) :: {:ok, :pending} | {:error, term()}
   def get_thread_transcript(chat_id, placeholder_message_id) do
-    reply_to = Piano.Telegram.Surface.build_reply_to(chat_id, placeholder_message_id)
+    reply_to = TelegramSurface.build_reply_to(chat_id, placeholder_message_id)
 
     case find_recent_thread("telegram:#{chat_id}") do
       {:ok, %{codex_thread_id: nil}} ->

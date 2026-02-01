@@ -9,7 +9,7 @@ config :piano, :ash_domains, [Piano.Core, Piano.Domain]
 config :piano, Piano.Codex.Config,
   codex_command: "codex",
   current_profile: :fast,
-  allowed_profiles: [:smart, :fast, :expensive, :replay, :experimental, :gfq]
+  allowed_profiles: [:smart, :fast, :expensive, :replay, :experimental, :gfq, :vision]
 
 config :piano, PianoWeb.Endpoint,
   url: [host: "localhost"],

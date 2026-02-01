@@ -51,7 +51,6 @@ defmodule Piano.MixProject do
       {:phoenix_live_dashboard, "~> 0.8.7"},
       {:phoenix_live_reload, "~> 1.5", only: :dev},
       {:phoenix_live_view, "~> 1.0"},
-      {:floki, ">= 0.30.0", only: :test},
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.2", runtime: Mix.env() == :dev},
       {:heroicons,
@@ -92,7 +91,7 @@ defmodule Piano.MixProject do
 
       # Telegram
       {:ex_gram, "~> 0.57"},
-      
+
       # AI / MCP
       {:ash_ai, github: "ash-project/ash_ai"}
     ]

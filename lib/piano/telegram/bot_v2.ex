@@ -30,6 +30,7 @@ defmodule Piano.Telegram.BotV2 do
   command("codexlogout", description: "Logout Codex")
   command("transcript", description: "Get transcript of current thread")
   command("status", description: "Show server status/boot info")
+  command("session", description: "Show Codex session info and MCP tools")
 
   middleware(ExGram.Middleware.IgnoreUsername)
 
@@ -59,6 +60,7 @@ defmodule Piano.Telegram.BotV2 do
       /codexlogout - logout Codex
       /transcript - get transcript of current thread
       /status - show server status
+      /session - show Codex session info and MCP tools
       """
     )
   end
@@ -172,7 +174,7 @@ defmodule Piano.Telegram.BotV2 do
     answer(context, "Logging out Codex...")
   end
 
-  def handle({:command, :transcript, msg}, context) do
+  def handle({:command, :transcript, msg}, _context) do
     log_inbound(:command, msg, "/transcript")
     chat_id = msg.chat.id
 
@@ -201,6 +203,44 @@ defmodule Piano.Telegram.BotV2 do
     answer(context, Observability.status_text())
   end
 
+  def handle({:command, :session, _msg}, context) do
+    codex_status = if CodexClient.ready?(), do: "✅ Ready", else: "⏳ Initializing"
+    current_profile = CodexConfig.current_profile!() |> to_string()
+
+    tools = [
+      "browser_visit",
+      "browser_click",
+      "browser_input",
+      "browser_find",
+      "browser_screenshot",
+      "browser_get_content",
+      "browser_current_url",
+      "browser_execute_script",
+      "web_fetch",
+      "web_extract_text",
+      "web_extract_markdown",
+      "web_extract_structured"
+    ]
+
+    tool_list = Enum.map_join(tools, "\n", fn t -> "  • #{t}" end)
+
+    message = """
+    🔌 <b>Codex Session Info</b>
+
+    <b>Status:</b> #{codex_status}
+    <b>Profile:</b> #{current_profile}
+
+    <b>MCP Tools Available (#{length(tools)}):</b>
+    #{tool_list}
+
+    <b>MCP Server:</b> piano@http://localhost:4000/mcp
+
+    Use these tools by asking me to analyze websites or fetch content!
+    """
+
+    answer(context, message, parse_mode: "HTML")
+  end
+
   def handle({:command, _command, _msg}, context) do
     answer(context, "Unknown command. Send /help for available commands.")
   end
@@ -218,9 +258,175 @@ defmodule Piano.Telegram.BotV2 do
     end
   end
 
+  # Handle file/media messages (photos, documents, videos, audio, voice)
+  def handle({:photo, photo_sizes, msg}, context) do
+    handle_file_message(:photo, photo_sizes, msg, context)
+  end
+
+  def handle({:document, document, msg}, context) do
+    handle_file_message(:document, document, msg, context)
+  end
+
+  def handle({:video, video, msg}, context) do
+    handle_file_message(:video, video, msg, context)
+  end
+
+  def handle({:audio, audio, msg}, context) do
+    handle_file_message(:audio, audio, msg, context)
+  end
+
+  def handle({:voice, voice, msg}, context) do
+    handle_file_message(:voice, voice, msg, context)
+  end
+
   def handle(event, _context) do
     Logger.info("Telegram event ignored", event: summarize_event(event))
     :ok
+  end
+
+  defp handle_file_message(file_type, file_info, msg, context) do
+    log_inbound(:file, msg, "#{file_type} received")
+    chat_id = msg.chat.id
+
+    # Get file ID - different structures for different file types
+    file_id = extract_file_id(file_type, file_info)
+
+    if file_id do
+      # Send acknowledgment
+      %ExGram.Cnt{message: %{message_id: ack_msg_id}} =
+        answer(context, "📎 Processing #{file_type}...")
+
+      # Create intake folder for this interaction
+      interaction_id = "#{msg.message_id}_#{:erlang.unique_integer([:positive])}"
+      intake_path = Path.join([Piano.Intake.base_dir(), "telegram", interaction_id])
+
+      case Piano.Intake.create_interaction_folder("telegram", interaction_id) do
+        {:ok, ^intake_path} ->
+          # Download and save file
+          case download_and_save_file(file_id, intake_path, file_type) do
+            {:ok, file_path} ->
+              # Get caption if any
+              caption = Map.get(msg, :caption) || ""
+
+              # Generate intake context
+              intake_context = Piano.Intake.generate_context(intake_path)
+
+              # Update message with success info
+              TelegramSurface.edit_message_text(
+                chat_id,
+                ack_msg_id,
+                "✅ File saved. Processing with agent...\n\n#{intake_context}"
+              )
+
+              # Create prompt with file context
+              prompt = build_file_prompt(file_type, file_path, caption, intake_context)
+
+              # Pass to handler
+              case Handler.handle_message_with_intake(msg, prompt, intake_path) do
+                {:ok, _interaction} ->
+                  :ok
+
+                {:error, reason} ->
+                  Logger.error("Telegram handler failed for file: #{inspect(reason)}")
+                  :ok
+              end
+
+            {:error, reason} ->
+              Logger.error("Failed to download file: #{inspect(reason)}")
+
+              TelegramSurface.edit_message_text(
+                chat_id,
+                ack_msg_id,
+                "❌ Failed to download file: #{inspect(reason)}"
+              )
+          end
+
+        {:error, reason} ->
+          Logger.error("Failed to create intake folder: #{inspect(reason)}")
+
+          TelegramSurface.edit_message_text(
+            chat_id,
+            ack_msg_id,
+            "❌ Failed to create intake folder"
+          )
+      end
+    else
+      answer(context, "⚠️ Could not extract file information")
+    end
+  end
+
+  defp extract_file_id(:photo, photo_sizes) do
+    # Get the largest photo (last in the list is usually largest)
+    photo_sizes
+    |> List.last()
+    |> case do
+      %{file_id: id} -> id
+      %{"file_id" => id} -> id
+      _ -> nil
+    end
+  end
+
+  defp extract_file_id(_type, file_info) when is_map(file_info) do
+    # For documents, videos, audio, voice
+    Map.get(file_info, :file_id) || Map.get(file_info, "file_id")
+  end
+
+  defp extract_file_id(_, _), do: nil
+
+  defp download_and_save_file(file_id, intake_path, file_type) do
+    # Get file info from Telegram
+    token = bot_token()
+
+    case ExGram.get_file(file_id, token: token) do
+      {:ok, file_info} ->
+        file_path = file_info.file_path
+
+        # Determine extension based on file type
+        ext = file_extension(file_type, file_path)
+        filename = "#{file_type}_#{:erlang.unique_integer([:positive])}#{ext}"
+
+        # Download file content
+        download_url = "https://api.telegram.org/file/bot#{token}/#{file_path}"
+
+        case Req.get(download_url) do
+          {:ok, %{status: 200, body: body}} ->
+            Piano.Intake.save_file(intake_path, filename, body)
+
+          {:ok, %{status: status}} ->
+            {:error, "Download failed with status #{status}"}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp file_extension(:photo, _), do: ".jpg"
+  defp file_extension(:voice, _), do: ".ogg"
+
+  defp file_extension(_, file_path) when is_binary(file_path) do
+    ext = Path.extname(file_path)
+    if ext != "", do: ext, else: ".bin"
+  end
+
+  defp file_extension(_, _), do: ".bin"
+
+  defp build_file_prompt(file_type, file_path, caption, intake_context) do
+    base = "📎 User sent a #{file_type} file"
+    with_caption = if caption != "", do: "#{base} with caption: #{caption}", else: base
+
+    """
+    #{with_caption}
+
+    File location: `#{file_path}`
+
+    #{intake_context}
+
+    Please process this file as requested by the user.
+    """
   end
 
   defp new_request_id do
@@ -260,5 +466,10 @@ defmodule Piano.Telegram.BotV2 do
 
   defp summarize_event({:text, _text, _msg}), do: :text
   defp summarize_event({:command, cmd, _msg}), do: {:command, cmd}
+  defp summarize_event({:photo, _, _msg}), do: :photo
+  defp summarize_event({:document, _, _msg}), do: :document
+  defp summarize_event({:video, _, _msg}), do: :video
+  defp summarize_event({:audio, _, _msg}), do: :audio
+  defp summarize_event({:voice, _, _msg}), do: :voice
   defp summarize_event(other), do: other
 end

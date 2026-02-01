@@ -105,14 +105,11 @@ defmodule Piano.Transcript.Builder do
   end
 
   defp format_item(%{"type" => "mcpToolCall"} = item) do
-    tool = item["tool"] || "unknown"
-    result = item["result"]
+    format_mcp_tool_call(item)
+  end
 
-    if result do
-      "🔌 **Tool:** `#{tool}`\n→ `#{inspect(result)}`"
-    else
-      "🔌 **Tool:** `#{tool}`"
-    end
+  defp format_item(%{"type" => "mcp_tool_call"} = item) do
+    format_mcp_tool_call(item)
   end
 
   defp format_item(%{"type" => "webSearch"} = item) do
@@ -126,6 +123,45 @@ defmodule Piano.Transcript.Builder do
   end
 
   defp format_item(_), do: nil
+
+  # Helper functions must come after all format_item clauses
+  defp format_mcp_tool_call(item) do
+    tool = item["tool"] || item["name"] || "unknown"
+    server = item["server"] || "unknown"
+    arguments = item["arguments"] || item["params"] || %{}
+    result = item["result"]
+
+    args_str =
+      if map_size(arguments) > 0 do
+        Enum.map_join(arguments, ", ", fn {k, v} -> "#{k}: #{inspect(v)}" end)
+      else
+        ""
+      end
+
+    base = "🔌 **MCP Tool:** `#{tool}` (server: `#{server}`)"
+
+    with_args = if args_str != "", do: "#{base}\n  Args: #{args_str}", else: base
+
+    if result do
+      result_str =
+        case result do
+          %{"content" => [%{"text" => text}]} ->
+            # Truncate long results
+            if String.length(text) > 200 do
+              String.slice(text, 0, 200) <> "..."
+            else
+              text
+            end
+
+          other ->
+            inspect(other, limit: 100)
+        end
+
+      "#{with_args}\n  Result: #{result_str}"
+    else
+      with_args
+    end
+  end
 
   defp extract_content([%{"type" => "text", "text" => text} | _]), do: text
   defp extract_content([%{"type" => "outputText", "text" => text} | _]), do: text

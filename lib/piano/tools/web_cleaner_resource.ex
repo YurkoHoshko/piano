@@ -6,7 +6,7 @@ defmodule Piano.Tools.WebCleanerResource do
   and content extraction as Ash actions that can be called via MCP.
   """
 
-  use Ash.Resource
+  use Ash.Resource, domain: nil
 
   alias Piano.Tools.WebCleaner
 
@@ -61,8 +61,8 @@ defmodule Piano.Tools.WebCleanerResource do
           {:ok, content} ->
             # Truncate if too long for LLM context
             truncated =
-              if String.length(content) > 10000 do
-                String.slice(content, 0, 10000) <> "\n\n[Content truncated...]"
+              if String.length(content) > 10_000 do
+                String.slice(content, 0, 10_000) <> "\n\n[Content truncated...]"
               else
                 content
               end
@@ -73,7 +73,7 @@ defmodule Piano.Tools.WebCleanerResource do
                format: :text,
                url: url,
                original_length: String.length(content),
-               truncated: String.length(content) > 10000
+               truncated: String.length(content) > 10_000
              }}
 
           {:error, reason} ->

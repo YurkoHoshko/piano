@@ -29,6 +29,9 @@ network_access = true
 [projects."/piano"]
 trust_level = "trusted"
 
+[projects."/piano/agents"]
+trust_level = "trusted"
+
 ################################################################################
 # Model Providers
 ################################################################################
@@ -90,15 +93,5 @@ name = "OpenAI (Replay)"
 base_url = "http://host.docker.internal:4000/v1"
 wire_api = "responses"
 
-################################################################################
-# MCP (Model Context Protocol) Servers
-################################################################################
-
-[mcp_servers]
-
 [mcp_servers.piano]
-# Piano's MCP server endpoint
-# When running locally:
-endpoint = "http://localhost:4000/mcp"
-# When running in Docker, use:
-# endpoint = "http://host.docker.internal:4000/mcp"
+url = "http://localhost:4000/mcp"
