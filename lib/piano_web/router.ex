@@ -46,4 +46,13 @@ defmodule PianoWeb.Router do
       get "/models", CodexReplayController, :models
     end
   end
+
+  # MCP (Model Context Protocol) endpoint for AI tools
+  scope "/mcp" do
+    pipe_through :api
+
+    forward "/", AshAi.Mcp.Router,
+      otp_app: :piano,
+      protocol_version_statement: "2024-11-05"
+  end
 end

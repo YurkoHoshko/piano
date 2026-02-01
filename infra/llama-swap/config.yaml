@@ -9,7 +9,7 @@ macros:
   gpt_oss_flags: >
     --temp 1 --top-p 1.0 --top-k 0
   qwen_coder_flags: >
-    --temp 0.7 --top-p 0.8 --top-k 20 --cpu-moe
+    --temp 0.7 --top-p 0.8 --top-k 20
   devstral_flags: >
     --temp 0.15 --min-p 0.01
   glm_flags: >
@@ -59,12 +59,21 @@ models:
   qwen3-coder.gguf:
     name: qwen3-coder.gguf
     cmd: |
-      llama-server ${network_flags} ${context_flags} ${qwen_coder_flags} --jinja --model /models/qwen3-coder.gguf
+      llama-server ${network_flags}  --cpu-moe ${context_flags} ${qwen_coder_flags} --jinja --model /models/qwen3-coder.gguf
     proxy: http://127.0.0.1:${PORT}
     checkEndpoint: /health
     env:
       - CUDA_VISIBLE_DEVICES=0,1
 
+  nous-coder:
+    name: nous-coder
+    cmd: |
+      llama-server ${network_flags} ${context_flags} ${qwen_coder_flags} --jinja --model /models/nous-coder
+    proxy: http://127.0.0.1:${PORT}
+    checkEndpoint: /health
+    env:
+      - CUDA_VISIBLE_DEVICES=0,1
+      
   devstral-small-2-24b-instruct:
     name: devstral-small-2-24b-instruct
     cmd: |

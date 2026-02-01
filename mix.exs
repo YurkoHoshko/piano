@@ -91,7 +91,10 @@ defmodule Piano.MixProject do
       {:sourceror, "~> 1.7", only: [:dev, :test]},
 
       # Telegram
-      {:ex_gram, "~> 0.57"}
+      {:ex_gram, "~> 0.57"},
+      
+      # AI / MCP
+      {:ash_ai, github: "ash-project/ash_ai"}
     ]
   end
 

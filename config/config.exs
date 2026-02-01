@@ -4,7 +4,7 @@ config :piano,
   ecto_repos: [Piano.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-config :piano, :ash_domains, [Piano.Core]
+config :piano, :ash_domains, [Piano.Core, Piano.Domain]
 
 config :piano, Piano.Codex.Config,
   codex_command: "codex",
@@ -78,5 +78,19 @@ config :piano, :telegram,
 # ExGram configuration
 config :ex_gram, token: System.get_env("TELEGRAM_BOT_TOKEN")
 config :ex_gram, adapter: ExGram.Adapter.Req
+
+# Tools configuration
+config :piano, :browser_agent_enabled, System.get_env("BROWSER_AGENT_ENABLED", "false") == "true"
+config :piano, :browser_agent_driver, :chrome
+config :piano, :browser_agent_config_path, System.get_env("BROWSER_AGENT_CONFIG_PATH")
+
+# Wallaby configuration (for browser agent)
+config :wallaby,
+  chromedriver: [
+    path: System.get_env("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+  ],
+  geckodriver: [
+    path: System.get_env("GECKODRIVER_PATH", "/usr/local/bin/geckodriver")
+  ]
 
 import_config "#{config_env()}.exs"

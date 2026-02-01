@@ -28,6 +28,17 @@ if config_env() == :prod do
 
   config :piano, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
+  # Browser agent configuration (runtime)
+  config :piano,
+         :browser_agent_enabled,
+         System.get_env("BROWSER_AGENT_ENABLED", "false") == "true"
+
+  config :piano,
+         :browser_agent_driver,
+         String.to_atom(System.get_env("BROWSER_AGENT_DRIVER", "chrome"))
+
+  config :piano, :browser_agent_config_path, System.get_env("BROWSER_AGENT_CONFIG_PATH")
+
   config :piano, PianoWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [

@@ -22,6 +22,12 @@ defmodule PianoWeb.Endpoint do
     socket "/phoenix/live_reload/socket", Phoenix.LiveReloader.Socket
     plug Phoenix.LiveReloader
     plug Phoenix.CodeReloader
+
+    # Ash AI Dev MCP server for local development
+    # Available at http://localhost:4000/ash_ai/mcp
+    plug AshAi.Mcp.Dev,
+      otp_app: :piano,
+      protocol_version_statement: "2024-11-05"
   end
 
   plug Plug.RequestId
