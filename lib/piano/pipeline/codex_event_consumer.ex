@@ -14,8 +14,6 @@ defmodule Piano.Pipeline.CodexEventConsumer do
   alias Piano.Codex.Persistence
   alias Piano.Codex.RequestMap
   alias Piano.Codex.Responses
-  alias Piano.Telegram.Surface
-  alias Piano.Transcript.Builder
 
   require Logger
   require Ash.Query
@@ -106,15 +104,25 @@ defmodule Piano.Pipeline.CodexEventConsumer do
     handle_turn_start_error(tid, iid, error, client)
   end
 
-  defp dispatch_response(%Responses.LoginStartResponse{} = response, %{chat_id: chat_id}) do
-    handle_telegram_account_login_start(chat_id, response)
+  defp dispatch_response(%Responses.LoginStartResponse{} = response, %{
+         reply_to: reply_to
+       }) do
+    with {:ok, surface} <- build_surface(reply_to) do
+      Piano.Surface.on_account_login_start(surface, response)
+    end
+
+    :ok
   end
 
   defp dispatch_response(%Responses.AccountReadResponse{} = response, %{
-         chat_id: chat_id,
+         reply_to: reply_to,
          type: :telegram_account_read
        }) do
-    handle_telegram_account_read(chat_id, response)
+    with {:ok, surface} <- build_surface(reply_to) do
+      Piano.Surface.on_account_read(surface, response)
+    end
+
+    :ok
   end
 
   defp dispatch_response(%Responses.AccountReadResponse{} = response, %{
@@ -124,21 +132,33 @@ defmodule Piano.Pipeline.CodexEventConsumer do
   end
 
   defp dispatch_response(%Responses.GenericResponse{} = response, %{
-         chat_id: chat_id,
+         reply_to: reply_to,
          type: :telegram_account_logout
        }) do
-    handle_telegram_account_logout(chat_id, response)
+    with {:ok, surface} <- build_surface(reply_to) do
+      Piano.Surface.on_account_logout(surface, response)
+    end
+
+    :ok
   end
 
   defp dispatch_response(%Responses.ThreadTranscriptResponse{} = response, %{
-         chat_id: chat_id,
+         reply_to: reply_to,
          placeholder_message_id: msg_id
        }) do
-    handle_telegram_thread_transcript(chat_id, response, msg_id)
+    with {:ok, surface} <- build_surface(reply_to) do
+      Piano.Surface.on_thread_transcript(surface, response, msg_id)
+    end
+
+    :ok
   end
 
-  defp dispatch_response(%Responses.ThreadTranscriptResponse{} = response, %{chat_id: chat_id}) do
-    handle_telegram_thread_transcript(chat_id, response, nil)
+  defp dispatch_response(%Responses.ThreadTranscriptResponse{} = response, %{reply_to: reply_to}) do
+    with {:ok, surface} <- build_surface(reply_to) do
+      Piano.Surface.on_thread_transcript(surface, response, nil)
+    end
+
+    :ok
   end
 
   defp dispatch_response(%Responses.ConfigReadResponse{} = response, %{type: :config_read}) do
@@ -325,83 +345,12 @@ defmodule Piano.Pipeline.CodexEventConsumer do
     :ok
   end
 
-  defp handle_telegram_account_login_start(chat_id, %Responses.LoginStartResponse{} = response) do
-    cond do
-      response.error ->
-        Surface.send_message(chat_id, "Failed to start login: #{inspect(response.error)}", [])
-
-      response.auth_url ->
-        Surface.send_message(
-          chat_id,
-          """
-          Open this URL in a browser to finish ChatGPT login:
-          #{response.auth_url}
-
-          loginId: #{inspect(response.login_id)}
-          After completing login, run /codexaccount to confirm.
-          """,
-          []
-        )
-
-      true ->
-        Surface.send_message(chat_id, "Unexpected login response", [])
-    end
-
-    :ok
+  # Build surface from reply_to string (e.g., "telegram:123:456")
+  defp build_surface("telegram:" <> _ = reply_to) do
+    Piano.Telegram.Surface.parse(reply_to)
   end
 
-  defp handle_telegram_account_read(chat_id, %Responses.AccountReadResponse{} = response) do
-    if response.error do
-      Surface.send_message(chat_id, "Failed to read account: #{inspect(response.error)}", [])
-    else
-      Piano.Observability.put_account_status(response.account)
-      Surface.send_message(chat_id, "Codex account: #{inspect(response.account)}", [])
-    end
-
-    :ok
-  end
-
-  defp handle_telegram_account_logout(chat_id, %Responses.GenericResponse{} = response) do
-    if response.error do
-      Surface.send_message(chat_id, "Failed to logout: #{inspect(response.error)}", [])
-    else
-      Surface.send_message(chat_id, "✅ Logged out. Run /codexaccount to confirm.", [])
-    end
-
-    :ok
-  end
-
-  defp handle_telegram_thread_transcript(
-         chat_id,
-         %Responses.ThreadTranscriptResponse{} = response,
-         placeholder_msg_id
-       ) do
-    if response.error do
-      # Delete placeholder and send error
-      if placeholder_msg_id do
-        ExGram.delete_message(chat_id, placeholder_msg_id)
-      end
-
-      Surface.send_message(chat_id, "Failed to get transcript: #{inspect(response.error)}", [])
-    else
-      # Delete placeholder message
-      if placeholder_msg_id do
-        ExGram.delete_message(chat_id, placeholder_msg_id)
-      end
-
-      # Build and send transcript
-      thread_data = %{"thread" => response.thread, "turns" => response.turns}
-      transcript = Builder.from_thread_response(thread_data)
-
-      thread_id = response.thread["id"] || "unknown"
-      filename = "transcript_#{thread_id}.md"
-      document = {:file_content, transcript, filename}
-
-      Surface.send_document(chat_id, document, caption: "📄 Thread transcript")
-    end
-
-    :ok
-  end
+  defp build_surface(_), do: :error
 
   defp safe_current_profile do
     CodexConfig.current_profile!()

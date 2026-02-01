@@ -12,6 +12,7 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_BOT_USERNAME=Naynaynay1234bot
       - CODEX_HOME=/piano/agents/.codex
+      - BROWSER_AGENT_ENABLED=true
     volumes:
       - piano_data:/data
       - ./.agents:/piano/agents

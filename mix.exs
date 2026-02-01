@@ -40,7 +40,7 @@ defmodule Piano.MixProject do
   def application do
     [
       mod: {Piano.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      extra_applications: [:logger, :runtime_tools, :req, :finch]
     ]
   end
 
@@ -78,6 +78,10 @@ defmodule Piano.MixProject do
       # HTTP client (used by ExGram adapter)
       {:req, "~> 0.5"},
       {:broadway, "~> 1.0"},
+
+      # Tools
+      {:floki, "~> 0.37"},
+      {:wallaby, "~> 0.30"},
 
       # Testing
       {:mox, "~> 1.0", only: :test},

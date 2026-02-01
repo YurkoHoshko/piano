@@ -85,6 +85,39 @@ defprotocol Piano.Surface do
   """
   @spec send_thread_transcript(t(), map()) :: {:ok, term()} | {:error, term()}
   def send_thread_transcript(surface, thread_data)
+
+  @doc """
+  Called when account login process starts.
+
+  Receives the login response with auth_url, login_id, and optional error.
+  """
+  @spec on_account_login_start(t(), map()) :: :ok
+  def on_account_login_start(surface, response)
+
+  @doc """
+  Called when account read response is received.
+
+  Receives the account response with account info and optional error.
+  """
+  @spec on_account_read(t(), map()) :: :ok
+  def on_account_read(surface, response)
+
+  @doc """
+  Called when account logout response is received.
+
+  Receives the generic response with optional error.
+  """
+  @spec on_account_logout(t(), map()) :: :ok
+  def on_account_logout(surface, response)
+
+  @doc """
+  Called when thread transcript response is received.
+
+  Receives the thread transcript response with thread data, turns, optional error,
+  and optional placeholder_id for removing temporary messages.
+  """
+  @spec on_thread_transcript(t(), map(), integer() | nil) :: :ok
+  def on_thread_transcript(surface, response, placeholder_id)
 end
 
 defimpl Piano.Surface, for: Any do
@@ -97,4 +130,8 @@ defimpl Piano.Surface, for: Any do
   def on_agent_message_delta(_surface, _context, _params), do: {:ok, :noop}
   def on_approval_required(_surface, _context, _params), do: {:ok, :noop}
   def send_thread_transcript(_surface, _thread_data), do: {:ok, :noop}
+  def on_account_login_start(_surface, _response), do: :ok
+  def on_account_read(_surface, _response), do: :ok
+  def on_account_logout(_surface, _response), do: :ok
+  def on_thread_transcript(_surface, _response, _placeholder_id), do: :ok
 end

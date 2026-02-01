@@ -50,7 +50,10 @@ RUN mix release
 FROM ${RUNNER_IMAGE}
 
 RUN apt-get update -y && \
-  apt-get install -y libstdc++6 openssl libncurses5 locales ca-certificates curl git sudo \
+  apt-get install -y \
+    libstdc++6 openssl libncurses5 locales ca-certificates curl git sudo \
+    chromium chromium-driver \
+    fonts-liberation fonts-noto-color-emoji fonts-dejavu fontconfig \
   && apt-get clean && rm -f /var/lib/apt/lists/*_*
 
 # Install mise for runtime version management
@@ -88,6 +91,12 @@ ENV PATH="/home/app/.local/share/mise/shims:$PATH"
 ENV MIX_ENV="prod"
 ENV DATABASE_PATH="/data/piano.db"
 ENV CODEX_HOME="/piano/agents/.codex"
+
+# Browser agent configuration
+ENV BROWSER_AGENT_ENABLED="false"
+ENV BROWSER_AGENT_DRIVER="chrome"
+ENV CHROMEDRIVER_PATH="/usr/bin/chromedriver"
+ENV CHROME_BIN="/usr/bin/chromium"
 
 # Copy the release from builder
 COPY --from=builder --chown=app:app /piano/runtime/_build/${MIX_ENV}/rel/piano ./

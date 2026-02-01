@@ -130,7 +130,14 @@ defmodule Piano.Telegram.BotV2 do
     # ChatGPT login is an interactive browser flow. We just return the authUrl,
     # and Codex completes the login when the callback is received.
     request_id = new_request_id()
-    :ok = RequestMap.put(request_id, %{type: :telegram_account_login_start, chat_id: msg.chat.id})
+    reply_to = TelegramSurface.build_reply_to(msg.chat.id, 0)
+
+    :ok =
+      RequestMap.put(request_id, %{
+        type: :telegram_account_login_start,
+        reply_to: reply_to
+      })
+
     :ok = CodexClient.send_request("account/login/start", %{type: "chatgpt"}, request_id)
     answer(context, "Starting ChatGPT login... (waiting for auth URL)")
   end
@@ -138,7 +145,14 @@ defmodule Piano.Telegram.BotV2 do
   def handle({:command, :codexaccount, msg}, context) do
     log_inbound(:command, msg, "/codexaccount")
     request_id = new_request_id()
-    :ok = RequestMap.put(request_id, %{type: :telegram_account_read, chat_id: msg.chat.id})
+    reply_to = TelegramSurface.build_reply_to(msg.chat.id, 0)
+
+    :ok =
+      RequestMap.put(request_id, %{
+        type: :telegram_account_read,
+        reply_to: reply_to
+      })
+
     :ok = CodexClient.send_request("account/read", %{refreshToken: false}, request_id)
     answer(context, "Reading Codex account...")
   end
@@ -146,7 +160,14 @@ defmodule Piano.Telegram.BotV2 do
   def handle({:command, :codexlogout, msg}, context) do
     log_inbound(:command, msg, "/codexlogout")
     request_id = new_request_id()
-    :ok = RequestMap.put(request_id, %{type: :telegram_account_logout, chat_id: msg.chat.id})
+    reply_to = TelegramSurface.build_reply_to(msg.chat.id, 0)
+
+    :ok =
+      RequestMap.put(request_id, %{
+        type: :telegram_account_logout,
+        reply_to: reply_to
+      })
+
     :ok = CodexClient.send_request("account/logout", %{}, request_id)
     answer(context, "Logging out Codex...")
   end

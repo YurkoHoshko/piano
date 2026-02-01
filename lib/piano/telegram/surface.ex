@@ -160,9 +160,11 @@ end
 
 defimpl Piano.Surface, for: Piano.Telegram.Surface do
   alias Piano.Codex.Events
+  alias Piano.Codex.Responses
   alias Piano.Surface.Context
   alias Piano.Telegram.Surface, as: TelegramSurface
   alias Piano.Telegram.Transcript
+  alias Piano.Transcript.Builder
   require Ash.Query
 
   @telegram_output_preview_max 500
@@ -545,4 +547,108 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
   end
 
   defp escape_html(other), do: escape_html(to_string(other))
+
+  # ============================================================================
+  # Account and Thread Callbacks
+  # ============================================================================
+
+  def on_account_login_start(surface, %Responses.LoginStartResponse{} = response) do
+    cond do
+      response.error ->
+        TelegramSurface.send_message(
+          surface.chat_id,
+          "Failed to start login: #{inspect(response.error)}",
+          []
+        )
+
+      response.auth_url ->
+        TelegramSurface.send_message(
+          surface.chat_id,
+          """
+          Open this URL in a browser to finish ChatGPT login:
+          #{response.auth_url}
+
+          loginId: #{inspect(response.login_id)}
+          After completing login, run /codexaccount to confirm.
+          """,
+          []
+        )
+
+      true ->
+        TelegramSurface.send_message(surface.chat_id, "Unexpected login response", [])
+    end
+
+    :ok
+  end
+
+  def on_account_read(surface, %Responses.AccountReadResponse{} = response) do
+    if response.error do
+      TelegramSurface.send_message(
+        surface.chat_id,
+        "Failed to read account: #{inspect(response.error)}",
+        []
+      )
+    else
+      Piano.Observability.put_account_status(response.account)
+
+      TelegramSurface.send_message(
+        surface.chat_id,
+        "Codex account: #{inspect(response.account)}",
+        []
+      )
+    end
+
+    :ok
+  end
+
+  def on_account_logout(surface, %Responses.GenericResponse{} = response) do
+    if response.error do
+      TelegramSurface.send_message(
+        surface.chat_id,
+        "Failed to logout: #{inspect(response.error)}",
+        []
+      )
+    else
+      TelegramSurface.send_message(
+        surface.chat_id,
+        "✅ Logged out. Run /codexaccount to confirm.",
+        []
+      )
+    end
+
+    :ok
+  end
+
+  def on_thread_transcript(
+        surface,
+        %Responses.ThreadTranscriptResponse{} = response,
+        placeholder_msg_id
+      ) do
+    if response.error do
+      if placeholder_msg_id do
+        ExGram.delete_message(surface.chat_id, placeholder_msg_id)
+      end
+
+      TelegramSurface.send_message(
+        surface.chat_id,
+        "Failed to get transcript: #{inspect(response.error)}",
+        []
+      )
+    else
+      if placeholder_msg_id do
+        ExGram.delete_message(surface.chat_id, placeholder_msg_id)
+      end
+
+      thread_data = %{"thread" => response.thread, "turns" => response.turns}
+      transcript = Builder.from_thread_response(thread_data)
+
+      thread_id = response.thread["id"] || "unknown"
+      filename = "transcript_#{thread_id}.md"
+      document = {:file_content, transcript, filename}
+
+      TelegramSurface.send_document(surface.chat_id, document, caption: "📄 Thread transcript")
+    end
+
+    :ok
+  end
 end

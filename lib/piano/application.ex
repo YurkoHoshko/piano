@@ -28,7 +28,7 @@ defmodule Piano.Application do
         Piano.Codex.Client,
         Piano.Pipeline.CodexEventPipeline,
         PianoWeb.Endpoint
-      ] ++ telegram_children()
+      ] ++ browser_agent_children() ++ telegram_children()
 
     opts = [strategy: :one_for_one, name: Piano.Supervisor]
 
@@ -41,6 +41,22 @@ defmodule Piano.Application do
 
       other ->
         other
+    end
+  end
+
+  defp browser_agent_children do
+    if Application.get_env(:piano, :browser_agent_enabled, false) do
+      Logger.info("Browser agent enabled")
+
+      driver = Application.get_env(:piano, :browser_agent_driver, :chrome)
+      config_path = Application.get_env(:piano, :browser_agent_config_path)
+
+      [
+        {Piano.Tools.BrowserAgent, [driver: driver, config_path: config_path]}
+      ]
+    else
+      Logger.info("Browser agent disabled (set BROWSER_AGENT_ENABLED=true to enable)")
+      []
     end
   end
 

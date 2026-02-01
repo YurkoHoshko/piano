@@ -298,9 +298,9 @@ defmodule Piano.Telegram.Handler do
   """
   @spec get_thread_transcript(integer(), integer()) :: {:ok, :pending} | {:error, term()}
   def get_thread_transcript(chat_id, placeholder_message_id) do
-    reply_to = "telegram:#{chat_id}"
+    reply_to = Piano.Telegram.Surface.build_reply_to(chat_id, placeholder_message_id)
 
-    case find_recent_thread(reply_to) do
+    case find_recent_thread("telegram:#{chat_id}") do
       {:ok, %{codex_thread_id: nil}} ->
         {:error, :no_thread}
 
@@ -310,7 +310,7 @@ defmodule Piano.Telegram.Handler do
         :ok =
           RequestMap.put(request_id, %{
             type: :thread_transcript,
-            chat_id: chat_id,
+            reply_to: reply_to,
             codex_thread_id: codex_thread_id,
             placeholder_message_id: placeholder_message_id
           })
