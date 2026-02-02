@@ -222,6 +222,8 @@ defmodule Piano.Codex.Persistence do
     end
   end
 
+  defp find_by_turn_id(nil), do: {:error, :not_found}
+
   defp find_by_turn_id(turn_id) do
     query =
       Interaction
