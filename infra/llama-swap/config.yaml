@@ -14,10 +14,7 @@ macros:
     --temp 0.15 --min-p 0.01
   glm_flags: >
     --temp 0.2 --top-k 50 --top-p 0.95 --min-p 0.01 --dry-multiplier 1.1
-  glm_q_flags: >
-    --temp 0.7 --top-p 1.0 --min-p 0.01 --dry-multiplier 1.1
-  vision_flags: >
-    --temp 0.03 --min-p 0.01 --top-p 0.8 --top-k 20 -c 16384 --repeat-penalty 1.1 --presence-penalty 1.5
+
 models:
   glm-47-flash:
     name: glm-47-flash
@@ -25,15 +22,6 @@ models:
       llama-server ${network_flags} ${context_flags} ${gpt_oss_flags} --n-cpu-moe 35 --model /models/glm-47-flash
     env:
       - CUDA_VISIBLE_DEVICES=0
-    proxy: http://127.0.0.1:${PORT}
-    checkEndpoint: /health
-
-  glm-47-flash-q:
-    name: glm-47-flash-q
-    cmd: |
-      llama-server ${network_flags} ${context_flags} ${glm_q_flags} --model /models/glm-47-flash-q
-    env:
-      - CUDA_VISIBLE_DEVICES=0,1
     proxy: http://127.0.0.1:${PORT}
     checkEndpoint: /health
 
@@ -56,78 +44,7 @@ models:
     checkEndpoint: /health
     env:
       - CUDA_VISIBLE_DEVICES=0,1
-
-  # xx
-  # Qwen3-ASR transcription model via vLLM (managed by llama-swap)
-  qwen3-asr-0.6b:
-    name: qwen3-asr-0.6b
-    cmd: |
-      python3 -m vllm.entrypoints.openai.api_server \
-        --model /models/qwen3-asr \
-        --served-model-name qwen3-asr-0.6b \
-        --host 0.0.0.0 \
-        --port ${PORT} \
-        --gpu-memory-utilization 0.6 \
-        --max-model-len 8192 \
-        --trust-remote-code \
-        --dtype bfloat16 \
-        --max-num-seqs 1 \
-        --mm-processor-kwargs '{"sampling_rate": 16000}'
-    proxy: http://127.0.0.1:${PORT}
-    checkEndpoint: /health
-    env:
-      - CUDA_VISIBLE_DEVICES=1
-      - HF_HOME=/models/.cache/huggingface
-    aliases:
-      - asr
-      - transcription
-
-  # Qwen3-VL-4B vision model via vLLM for OCR and image understanding
-  qwen3-vl-4b-vllm:
-    name: qwen3-vl-4b-vllm
-    cmd: |
-      python3 -m vllm.entrypoints.openai.api_server \
-        --model /models/qwen3-vl-vllm \
-        --served-model-name qwen3-vl-4b-vllm \
-        --host 0.0.0.0 \
-        --port ${PORT} \
-        --gpu-memory-utilization 0.9 \
-        --max-model-len 8192 \
-        --trust-remote-code \
-        --limit-mm-per-prompt '{"image": 4}' \
-        --dtype bfloat16
-    proxy: http://127.0.0.1:${PORT}
-    checkEndpoint: /health
-    env:
-      - CUDA_VISIBLE_DEVICES=1
-      - HF_HOME=/models/.cache/huggingface
-    aliases:
-      - vision
-      - vl
-      - ocr
-
-groups:
-  # GPU 0: llama.cpp models (gpt-oss, glm, etc) - swap between them
-  gpu0-llama:
-    swap: true
-    exclusive: false
-    members:
-      - gpt-oss-20b
-      - gpt-oss-120b
-      - glm-47-flash
-      - glm-47-flash-q
-
-  # GPU 1: vLLM models (vision, ASR) - swap between them to ensure enough memory
-  gpu1-vllm:
-    swap: true
-    exclusive: false
-    members:
-      - qwen3-vl-4b-vllm
-      - qwen3-asr-0.6b
-
 hooks:
   on_startup:
     preload:
       - gpt-oss-20b
-      # Only preload one vLLM model at a time to avoid memory conflicts
-      - qwen3-vl-4b-vllm

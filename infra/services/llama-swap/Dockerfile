@@ -19,42 +19,8 @@ RUN set -eux; \
     rm /tmp/llama-swap.tar.gz; \
     chmod +x /usr/local/bin/llama-swap
 
-COPY out/llama-server /usr/local/bin/llama-server
-RUN chmod +x /usr/local/bin/llama-server
-COPY out/libllama.so /usr/local/lib/libllama.so
-COPY out/libggml.so /usr/local/lib/libggml.so
-COPY out/libmtmd.so /usr/local/lib/libmtmd.so
-RUN ldconfig
 
-# Install Python for vLLM support (Qwen3-ASR transcription)
-# Include all X11 and multimedia libraries required by opencv-python
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-venv \
-    python3-pip \
-    libgl1 \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender1 \
-    libgomp1 \
-    libxcb1 \
-    libxcb-shm0 \
-    libxcb-xfixes0 \
-    libxcb-render0 \
-    libxcb-util1 \
-    libxcb-keysyms1 \
-    libxcb-icccm4 \
-    libxcb-sync1 \
-    libxcb-xinerama0 \
-    libxcb-xkb1 \
-    libxkbcommon0 \
-    libxkbcommon-x11-0 \
-    libfontconfig1 \
-    libfreetype6 \
-    libpng16-16 \
-    libjpeg-turbo8 \
-    && rm -rf /var/lib/apt/lists/*
 
 # Install mise and uv for Python package management
 RUN curl https://mise.run | sh && \
@@ -68,23 +34,12 @@ ENV PATH="/root/.local/share/mise/shims:$PATH"
 RUN mise use python@3.10 && \
     mise use uv
 
-# Create virtual environment and install vLLM with audio support
-RUN uv venv /opt/vllm-venv && \
-    uv pip install --python /opt/vllm-venv/bin/python \
-      vllm --pre \
-      --extra-index-url https://wheels.vllm.ai/nightly/cu129 \
-      --extra-index-url https://download.pytorch.org/whl/cu129 \
-      --index-strategy unsafe-best-match && \
-    uv pip install --python /opt/vllm-venv/bin/python \
-      "vllm[audio]" \
-      transformers \
-      numpy \
-      accelerate
-
-# Make vLLM available in PATH
-ENV PATH="/opt/vllm-venv/bin:$PATH"
-ENV HF_HOME=/models/.cache/huggingface
-ENV TRANSFORMERS_CACHE=/models/.cache/huggingface
+COPY out/llama-server /usr/local/bin/llama-server
+RUN chmod +x /usr/local/bin/llama-server
+COPY out/libllama.so /usr/local/lib/libllama.so
+COPY out/libggml.so /usr/local/lib/libggml.so
+COPY out/libmtmd.so /usr/local/lib/libmtmd.so
+RUN ldconfig
 
 ENTRYPOINT ["llama-swap"]
 CMD ["--config", "/app/config.yaml", "--listen", "0.0.0.0:8080"]

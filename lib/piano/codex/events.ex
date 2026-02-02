@@ -509,328 +509,330 @@ defmodule Piano.Codex.Events do
       )
     end
 
-    case method do
-      # Turn events - IDs are at top level
-      "turn/started" ->
-        {:ok,
-         %TurnStarted{
-           turn_id: params["turnId"],
-           thread_id: params["threadId"],
-           input_items: get_in(params, ["turn", "input"]) || [],
-           raw_params: params
-         }}
-
-      "turn/completed" ->
-        status = parse_status(get_in(params, ["turn", "status"]))
-        turn_id = params["turnId"] || get_in(params, ["turn", "id"])
-
-        {:ok,
-         %TurnCompleted{
-           turn_id: turn_id,
-           thread_id: params["threadId"],
-           status: status,
-           error: get_in(params, ["turn", "error"]),
-           items: get_in(params, ["turn", "items"]) || [],
-           usage: parse_usage(params),
-           raw_params: params
-         }}
-
-      "turn/diff/updated" ->
-        {:ok,
-         %TurnDiffUpdated{
-           turn_id: params["turnId"],
-           thread_id: params["threadId"],
-           diff: params["diff"] || "",
-           raw_params: params
-         }}
-
-      "turn/plan/updated" ->
-        {:ok,
-         %TurnPlanUpdated{
-           turn_id: params["turnId"],
-           thread_id: params["threadId"],
-           plan: params["plan"] || %{},
-           raw_params: params
-         }}
-
-      # Item events - IDs can be in item or at top level
-      "item/started" ->
-        item = params["item"] || %{}
-
-        {:ok,
-         %ItemStarted{
-           item_id: item["id"] || item["itemId"],
-           turn_id: params["turnId"] || item["turnId"],
-           thread_id: params["threadId"] || item["threadId"],
-           type: map_item_type(item["type"]),
-           item: item,
-           raw_params: params
-         }}
-
-      "item/completed" ->
-        item = params["item"] || %{}
-        result = params["result"] || %{}
-
-        {:ok,
-         %ItemCompleted{
-           item_id: item["id"] || item["itemId"],
-           turn_id: params["turnId"] || item["turnId"],
-           thread_id: params["threadId"] || item["threadId"],
-           type: map_item_type(item["type"]),
-           status: parse_item_status(item["status"]),
-           item: item,
-           result: result,
-           raw_params: params
-         }}
-
-      # Delta events - IDs are at top level
-      "item/agentMessage/delta" ->
-        {:ok,
-         %AgentMessageDelta{
-           item_id: params["itemId"],
-           turn_id: params["turnId"],
-           delta: params["delta"] || "",
-           raw_params: params
-         }}
-
-      "item/reasoning/textDelta" ->
-        {:ok,
-         %ReasoningDelta{
-           item_id: params["itemId"],
-           turn_id: params["turnId"],
-           delta: params["delta"] || "",
-           raw_params: params
-         }}
-
-      "item/commandExecution/outputDelta" ->
-        {:ok,
-         %CommandOutputDelta{
-           item_id: params["itemId"],
-           turn_id: params["turnId"],
-           output: params["output"] || "",
-           raw_params: params
-         }}
-
-      "item/fileChange/outputDelta" ->
-        {:ok,
-         %FileChangeOutputDelta{
-           item_id: params["itemId"],
-           turn_id: params["turnId"],
-           output: params["output"] || "",
-           raw_params: params
-         }}
-
-      # Thread events - thread_id is nested in params["thread"]["id"]
-      "thread/started" ->
-        {:ok,
-         %ThreadStarted{
-           thread_id: get_in(params, ["thread", "id"]),
-           raw_params: params
-         }}
-
-      "thread/archived" ->
-        {:ok,
-         %ThreadArchived{
-           thread_id: get_in(params, ["thread", "id"]),
-           raw_params: params
-         }}
-
-      "thread/tokenUsage/updated" ->
-        {:ok,
-         %ThreadTokenUsageUpdated{
-           thread_id: params["threadId"],
-           usage: parse_usage(params),
-           rate_limits: params["rateLimits"],
-           raw_params: params
-         }}
-
-      # Account events
-      "account/updated" ->
-        {:ok,
-         %AccountUpdated{
-           account: params["account"],
-           raw_params: params
-         }}
-
-      "account/login/completed" ->
-        {:ok,
-         %AccountLoginCompleted{
-           account: params["account"],
-           raw_params: params
-         }}
-
-      "account/rateLimits/updated" ->
-        {:ok,
-         %AccountRateLimitsUpdated{
-           rate_limits: params["rateLimits"],
-           raw_params: params
-         }}
-
-      # Approval events - IDs are at top level
-      "item/commandExecution/requestApproval" ->
-        {:ok,
-         %CommandExecutionRequestApproval{
-           item_id: params["itemId"],
-           turn_id: params["turnId"],
-           thread_id: params["threadId"],
-           command: params["command"] || [],
-           reason: params["reason"],
-           risk: params["risk"],
-           raw_params: params
-         }}
-
-      "item/fileChange/requestApproval" ->
-        {:ok,
-         %FileChangeRequestApproval{
-           item_id: params["itemId"],
-           turn_id: params["turnId"],
-           thread_id: params["threadId"],
-           path: params["path"] || "",
-           reason: params["reason"],
-           raw_params: params
-         }}
-
-      "applyPatch/approval" ->
-        {:ok,
-         %ApplyPatchApproval{
-           item_id: params["itemId"],
-           turn_id: params["turnId"],
-           thread_id: params["threadId"],
-           patch: params["patch"] || "",
-           reason: params["reason"],
-           raw_params: params
-         }}
-
-      # MCP tool events - IDs are at top level
-      "item/mcpToolCall/progress" ->
-        {:ok,
-         %McpToolCallProgress{
-           item_id: params["itemId"],
-           turn_id: params["turnId"],
-           tool: params["tool"] || "",
-           progress: params["progress"] || %{},
-           raw_params: params
-         }}
-
-      # Error/Warning events
-      "error" ->
-        {:ok,
-         %Error{
-           message: params["message"] || params["error"] || "Unknown error",
-           codex_error_info: params["codexErrorInfo"],
-           turn_id: params["turnId"],
-           thread_id: params["threadId"],
-           will_retry: params["willRetry"],
-           raw_params: params
-         }}
-
-      "warning" ->
-        {:ok,
-         %Warning{
-           message: params["message"] || "Unknown warning",
-           raw_params: params
-         }}
-
-      # Legacy v1 event names (for backward compatibility)
-      "codex/event/task_started" ->
-        parse_event("turn/started", params)
-
-      "codex/event/task_completed" ->
-        parse_event("turn/completed", params)
-
-      "codex/event/item_started" ->
-        parse_event("item/started", params)
-
-      "codex/event/item_completed" ->
-        parse_event("item/completed", params)
-
-      # Legacy v1 agent message event
-      "codex/event/agent_message" ->
-        {:ok,
-         %AgentMessage{
-           turn_id: params["id"],
-           thread_id: params["conversationId"],
-           message: get_in(params, ["msg", "message"]),
-           raw_params: params
-         }}
-
-      # Legacy v1 user message event (includes images)
-      "codex/event/user_message" ->
-        {:ok,
-         %UserMessage{
-           turn_id: params["id"],
-           thread_id: params["conversationId"],
-           message: get_in(params, ["msg", "message"]),
-           images: get_in(params, ["msg", "images"]) || [],
-           local_images: get_in(params, ["msg", "local_images"]) || [],
-           text_elements: get_in(params, ["msg", "text_elements"]) || [],
-           raw_params: params
-         }}
-
-      # Legacy v1 task complete event (like turn/completed with last message)
-      "codex/event/task_complete" ->
-        parse_event("turn/completed", %{
-          "turnId" => params["id"],
-          "threadId" => params["conversationId"],
-          "turn" => %{
-            "id" => params["id"],
-            "threadId" => params["conversationId"],
-            "status" => "completed",
-            "result" => %{"text" => get_in(params, ["msg", "last_agent_message"])}
-          }
-        })
-
-      # MCP tool call events
-      "codex/event/mcp_tool_call_begin" ->
-        # MCP events use conversationId as turn_id and id is just an index
-        parse_event("item/started", %{
-          "itemId" => get_in(params, ["msg", "call_id"]),
-          "turnId" => params["conversationId"],
-          "threadId" => params["conversationId"],
-          "item" => %{
-            "id" => get_in(params, ["msg", "call_id"]),
-            "type" => "mcpToolCall",
-            "content" => get_in(params, ["msg", "invocation"])
-          }
-        })
-
-      "codex/event/mcp_tool_call_end" ->
-        # MCP events use conversationId as turn_id and id is just an index
-        parse_event("item/completed", %{
-          "itemId" => get_in(params, ["msg", "call_id"]),
-          "turnId" => params["conversationId"],
-          "threadId" => params["conversationId"],
-          "item" => %{
-            "id" => get_in(params, ["msg", "call_id"]),
-            "type" => "mcpToolCall",
-            "content" => get_in(params, ["msg", "result"])
-          }
-        })
-
-      # MCP startup events (info only, no action needed)
-      "codex/event/mcp_startup_update" ->
-        {:ok, :ignored}
-
-      "codex/event/mcp_startup_complete" ->
-        {:ok, :ignored}
-
-      # Token count events (info only, track usage)
-      "codex/event/token_count" ->
-        {:ok, :ignored}
-
-      # View image tool call (Codex internal - not a Piano MCP tool)
-      "codex/event/view_image_tool_call" ->
-        {:ok, :ignored}
-
-      # Stream error events (connection issues, retries)
-      "codex/event/stream_error" ->
-        {:ok, :ignored}
-
-      # Unknown event
-      _ ->
-        {:error, {:unknown_event_method, method, params}}
-    end
+    do_parse_event(method, params)
   end
+
+  # Break down event parsing by category to reduce cyclomatic complexity
+
+  defp do_parse_event("turn/started", params) do
+    {:ok,
+     %TurnStarted{
+       turn_id: params["turnId"],
+       thread_id: params["threadId"],
+       input_items: get_in(params, ["turn", "input"]) || [],
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("turn/completed", params) do
+    status = parse_status(get_in(params, ["turn", "status"]))
+    turn_id = params["turnId"] || get_in(params, ["turn", "id"])
+
+    {:ok,
+     %TurnCompleted{
+       turn_id: turn_id,
+       thread_id: params["threadId"],
+       status: status,
+       error: get_in(params, ["turn", "error"]),
+       items: get_in(params, ["turn", "items"]) || [],
+       usage: parse_usage(params),
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("turn/diff/updated", params) do
+    {:ok,
+     %TurnDiffUpdated{
+       turn_id: params["turnId"],
+       thread_id: params["threadId"],
+       diff: params["diff"] || "",
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("turn/plan/updated", params) do
+    {:ok,
+     %TurnPlanUpdated{
+       turn_id: params["turnId"],
+       thread_id: params["threadId"],
+       plan: params["plan"] || %{},
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("item/started", params) do
+    item = params["item"] || %{}
+
+    {:ok,
+     %ItemStarted{
+       item_id: item["id"] || item["itemId"],
+       turn_id: params["turnId"] || item["turnId"],
+       thread_id: params["threadId"] || item["threadId"],
+       type: map_item_type(item["type"]),
+       item: item,
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("item/completed", params) do
+    item = params["item"] || %{}
+    result = params["result"] || %{}
+
+    {:ok,
+     %ItemCompleted{
+       item_id: item["id"] || item["itemId"],
+       turn_id: params["turnId"] || item["turnId"],
+       thread_id: params["threadId"] || item["threadId"],
+       type: map_item_type(item["type"]),
+       status: parse_item_status(item["status"]),
+       item: item,
+       result: result,
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("item/agentMessage/delta", params) do
+    {:ok,
+     %AgentMessageDelta{
+       item_id: params["itemId"],
+       turn_id: params["turnId"],
+       delta: params["delta"] || "",
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("item/reasoning/textDelta", params) do
+    {:ok,
+     %ReasoningDelta{
+       item_id: params["itemId"],
+       turn_id: params["turnId"],
+       delta: params["delta"] || "",
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("item/commandExecution/outputDelta", params) do
+    {:ok,
+     %CommandOutputDelta{
+       item_id: params["itemId"],
+       turn_id: params["turnId"],
+       output: params["output"] || "",
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("item/fileChange/outputDelta", params) do
+    {:ok,
+     %FileChangeOutputDelta{
+       item_id: params["itemId"],
+       turn_id: params["turnId"],
+       output: params["output"] || "",
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("thread/started", params) do
+    {:ok,
+     %ThreadStarted{
+       thread_id: get_in(params, ["thread", "id"]),
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("thread/archived", params) do
+    {:ok,
+     %ThreadArchived{
+       thread_id: get_in(params, ["thread", "id"]),
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("thread/tokenUsage/updated", params) do
+    {:ok,
+     %ThreadTokenUsageUpdated{
+       thread_id: params["threadId"],
+       usage: parse_usage(params),
+       rate_limits: params["rateLimits"],
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("account/updated", params) do
+    {:ok,
+     %AccountUpdated{
+       account: params["account"],
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("account/login/completed", params) do
+    {:ok,
+     %AccountLoginCompleted{
+       account: params["account"],
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("account/rateLimits/updated", params) do
+    {:ok,
+     %AccountRateLimitsUpdated{
+       rate_limits: params["rateLimits"],
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("item/commandExecution/requestApproval", params) do
+    {:ok,
+     %CommandExecutionRequestApproval{
+       item_id: params["itemId"],
+       turn_id: params["turnId"],
+       thread_id: params["threadId"],
+       command: params["command"] || [],
+       reason: params["reason"],
+       risk: params["risk"],
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("item/fileChange/requestApproval", params) do
+    {:ok,
+     %FileChangeRequestApproval{
+       item_id: params["itemId"],
+       turn_id: params["turnId"],
+       thread_id: params["threadId"],
+       path: params["path"] || "",
+       reason: params["reason"],
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("applyPatch/approval", params) do
+    {:ok,
+     %ApplyPatchApproval{
+       item_id: params["itemId"],
+       turn_id: params["turnId"],
+       thread_id: params["threadId"],
+       patch: params["patch"] || "",
+       reason: params["reason"],
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("item/mcpToolCall/progress", params) do
+    {:ok,
+     %McpToolCallProgress{
+       item_id: params["itemId"],
+       turn_id: params["turnId"],
+       tool: params["tool"] || "",
+       progress: params["progress"] || %{},
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("error", params) do
+    {:ok,
+     %Error{
+       message: params["message"] || params["error"] || "Unknown error",
+       codex_error_info: params["codexErrorInfo"],
+       turn_id: params["turnId"],
+       thread_id: params["threadId"],
+       will_retry: params["willRetry"],
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("warning", params) do
+    {:ok,
+     %Warning{
+       message: params["message"] || "Unknown warning",
+       raw_params: params
+     }}
+  end
+
+  # Legacy v1 event names (forward to current handlers)
+  defp do_parse_event("codex/event/task_started", params),
+    do: do_parse_event("turn/started", params)
+
+  defp do_parse_event("codex/event/task_completed", params),
+    do: do_parse_event("turn/completed", params)
+
+  defp do_parse_event("codex/event/item_started", params),
+    do: do_parse_event("item/started", params)
+
+  defp do_parse_event("codex/event/item_completed", params),
+    do: do_parse_event("item/completed", params)
+
+  defp do_parse_event("codex/event/agent_message", params) do
+    {:ok,
+     %AgentMessage{
+       turn_id: params["id"],
+       thread_id: params["conversationId"],
+       message: get_in(params, ["msg", "message"]),
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("codex/event/user_message", params) do
+    {:ok,
+     %UserMessage{
+       turn_id: params["id"],
+       thread_id: params["conversationId"],
+       message: get_in(params, ["msg", "message"]),
+       images: get_in(params, ["msg", "images"]) || [],
+       local_images: get_in(params, ["msg", "local_images"]) || [],
+       text_elements: get_in(params, ["msg", "text_elements"]) || [],
+       raw_params: params
+     }}
+  end
+
+  defp do_parse_event("codex/event/task_complete", params) do
+    do_parse_event("turn/completed", %{
+      "turnId" => params["id"],
+      "threadId" => params["conversationId"],
+      "turn" => %{
+        "id" => params["id"],
+        "threadId" => params["conversationId"],
+        "status" => "completed",
+        "result" => %{"text" => get_in(params, ["msg", "last_agent_message"])}
+      }
+    })
+  end
+
+  defp do_parse_event("codex/event/mcp_tool_call_begin", params) do
+    do_parse_event("item/started", %{
+      "itemId" => get_in(params, ["msg", "call_id"]),
+      "turnId" => params["conversationId"],
+      "threadId" => params["conversationId"],
+      "item" => %{
+        "id" => get_in(params, ["msg", "call_id"]),
+        "type" => "mcpToolCall",
+        "content" => get_in(params, ["msg", "invocation"])
+      }
+    })
+  end
+
+  defp do_parse_event("codex/event/mcp_tool_call_end", params) do
+    do_parse_event("item/completed", %{
+      "itemId" => get_in(params, ["msg", "call_id"]),
+      "turnId" => params["conversationId"],
+      "threadId" => params["conversationId"],
+      "item" => %{
+        "id" => get_in(params, ["msg", "call_id"]),
+        "type" => "mcpToolCall",
+        "content" => get_in(params, ["msg", "result"])
+      }
+    })
+  end
+
+  # Events to ignore
+  defp do_parse_event("codex/event/mcp_startup_update", _), do: {:ok, :ignored}
+  defp do_parse_event("codex/event/mcp_startup_complete", _), do: {:ok, :ignored}
+  defp do_parse_event("codex/event/token_count", _), do: {:ok, :ignored}
+  defp do_parse_event("codex/event/view_image_tool_call", _), do: {:ok, :ignored}
+  defp do_parse_event("codex/event/stream_error", _), do: {:ok, :ignored}
+
+  # Unknown event
+  defp do_parse_event(method, params), do: {:error, {:unknown_event_method, method, params}}
 
   # ============================================================================
   # Helper Functions
