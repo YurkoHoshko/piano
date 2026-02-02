@@ -69,16 +69,19 @@ defmodule Piano.Domain do
 
     # Voice/ASR tools
     tool(:voice_transcribe, Piano.Tools.VoiceToolResource, :transcribe,
-      description: "Transcribe audio or voice file to text using ASR. Use when user sends a voice message or audio file."
+      description:
+        "Transcribe audio or voice file to text using ASR. Use when user sends a voice message or audio file."
     )
 
     # Vision/Image tools
     tool(:vision_analyze, Piano.Tools.VisionToolResource, :analyze,
-      description: "Analyze an image and answer a specific question about it. Use when user sends an image and asks something about it."
+      description:
+        "Analyze an image and answer a specific question about it. Use when user sends an image and asks something about it."
     )
 
     tool(:vision_describe, Piano.Tools.VisionToolResource, :describe,
-      description: "Get a general description of an image. Use when user sends an image without specific question."
+      description:
+        "Get a general description of an image. Use when user sends an image without specific question."
     )
 
     tool(:vision_extract_text, Piano.Tools.VisionToolResource, :extract_text,

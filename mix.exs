@@ -78,6 +78,9 @@ defmodule Piano.MixProject do
       {:req, "~> 0.5"},
       {:broadway, "~> 1.0"},
 
+      # Multipart form data for file uploads
+      {:multipart, "~> 0.4"},
+
       # Tools
       {:floki, "~> 0.37"},
       {:wallaby, "~> 0.30"},

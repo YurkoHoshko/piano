@@ -67,11 +67,12 @@ models:
         --served-model-name qwen3-asr-0.6b \
         --host 0.0.0.0 \
         --port ${PORT} \
-        --gpu-memory-utilization 0.3 \
+        --gpu-memory-utilization 0.6 \
         --max-model-len 8192 \
         --trust-remote-code \
         --dtype bfloat16 \
-        --max-num-seqs 1
+        --max-num-seqs 1 \
+        --mm-processor-kwargs '{"sampling_rate": 16000}'
     proxy: http://127.0.0.1:${PORT}
     checkEndpoint: /health
     env:
@@ -91,7 +92,7 @@ models:
         --host 0.0.0.0 \
         --port ${PORT} \
         --gpu-memory-utilization 0.9 \
-        --max-model-len 4096 \
+        --max-model-len 8192 \
         --trust-remote-code \
         --limit-mm-per-prompt '{"image": 4}' \
         --dtype bfloat16
@@ -116,9 +117,9 @@ groups:
       - glm-47-flash
       - glm-47-flash-q
 
-  # GPU 1: vLLM models (vision, ASR) - can run together, no swapping
+  # GPU 1: vLLM models (vision, ASR) - swap between them to ensure enough memory
   gpu1-vllm:
-    swap: false
+    swap: true
     exclusive: false
     members:
       - qwen3-vl-4b-vllm
@@ -128,4 +129,5 @@ hooks:
   on_startup:
     preload:
       - gpt-oss-20b
+      # Only preload one vLLM model at a time to avoid memory conflicts
       - qwen3-vl-4b-vllm

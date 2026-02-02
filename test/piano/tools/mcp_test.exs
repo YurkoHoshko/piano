@@ -8,7 +8,7 @@ defmodule Piano.Tools.McpTest do
       definitions = Mcp.tool_definitions()
 
       assert is_list(definitions)
-      assert length(definitions) > 0
+      assert definitions != []
 
       # Check that required tools exist
       tool_names = Enum.map(definitions, & &1.name)

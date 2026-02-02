@@ -22,6 +22,12 @@ defmodule Piano.Codex.Persistence do
   """
   @spec process_event(Events.event()) :: {:ok, Interaction.t() | nil} | {:error, term()}
   def process_event(event) when is_struct(event) do
+    Logger.debug("Processing event",
+      event_type: event.__struct__ |> Module.split() |> List.last(),
+      turn_id: Map.get(event, :turn_id),
+      thread_id: Map.get(event, :thread_id)
+    )
+
     case event do
       %Events.TurnStarted{} ->
         with {:ok, interaction} <- find_or_create_interaction(event),
@@ -36,12 +42,26 @@ defmodule Piano.Codex.Persistence do
         end
 
       %Events.ItemStarted{} ->
+        Logger.debug("Processing ItemStarted",
+          item_id: event.item_id,
+          item_type: Map.get(event.item || %{}, "type"),
+          turn_id: event.turn_id,
+          thread_id: event.thread_id
+        )
+
         with {:ok, interaction} <- fetch_by_turn_or_thread(event.turn_id, event.thread_id),
              {:ok, _} <- create_interaction_item(interaction, event) do
           {:ok, interaction}
         end
 
       %Events.ItemCompleted{} ->
+        Logger.debug("Processing ItemCompleted",
+          item_id: event.item_id,
+          item_type: Map.get(event.item || %{}, "type"),
+          turn_id: event.turn_id,
+          thread_id: event.thread_id
+        )
+
         with {:ok, interaction} <- fetch_by_turn_or_thread(event.turn_id, event.thread_id),
              {:ok, _} <- complete_interaction_item(interaction, event) do
           maybe_update_response_from_item(interaction, event)
@@ -63,6 +83,26 @@ defmodule Piano.Codex.Persistence do
       %Events.ThreadArchived{} ->
         {:ok, nil}
 
+      %Events.Error{} ->
+        Logger.warning("Codex error received",
+          message: event.message,
+          turn_id: event.turn_id,
+          thread_id: event.thread_id,
+          will_retry: event.will_retry
+        )
+
+        if event.turn_id || event.thread_id do
+          with {:ok, interaction} <- fetch_by_turn_or_thread(event.turn_id, event.thread_id) do
+            unless event.will_retry do
+              Ash.update(interaction, %{}, action: :fail)
+            end
+
+            {:ok, interaction}
+          end
+        else
+          {:ok, nil}
+        end
+
       _ ->
         Logger.debug("Unhandled event type for persistence: #{event.__struct__}")
         {:ok, nil}
@@ -80,22 +120,56 @@ defmodule Piano.Codex.Persistence do
     end
   end
 
-  defp fetch_by_turn_or_thread(nil, nil), do: {:error, :missing_ids}
+  defp fetch_by_turn_or_thread(nil, nil) do
+    Logger.warning("Cannot fetch interaction: both turn_id and thread_id are nil")
+    {:error, :missing_ids}
+  end
 
   defp fetch_by_turn_or_thread(turn_id, nil) when is_binary(turn_id) do
+    Logger.debug("Fetching interaction by turn_id only", turn_id: turn_id)
     fetch_interaction_by_turn(nil, turn_id)
   end
 
   defp fetch_by_turn_or_thread(turn_id, thread_id)
        when is_binary(turn_id) and is_binary(thread_id) do
-    fetch_interaction_by_turn_and_thread(turn_id, thread_id)
+    Logger.debug("Fetching interaction by turn_id and thread_id",
+      turn_id: turn_id,
+      thread_id: thread_id
+    )
+
+    case fetch_interaction_by_turn_and_thread(turn_id, thread_id) do
+      {:ok, interaction} ->
+        {:ok, interaction}
+
+      {:error, :not_found} = error ->
+        Logger.warning("Interaction not found for turn/thread",
+          turn_id: turn_id,
+          thread_id: thread_id
+        )
+
+        error
+    end
   end
 
   defp fetch_by_turn_or_thread(nil, thread_id) when is_binary(thread_id) do
+    Logger.debug("Fetching latest interaction for thread", thread_id: thread_id)
     fetch_latest_for_thread(thread_id)
   end
 
-  defp fetch_by_turn_or_thread(_, _), do: {:error, :invalid_ids}
+  defp fetch_by_turn_or_thread(turn_id, thread_id) do
+    Logger.warning("Invalid IDs for interaction lookup",
+      turn_id: turn_id,
+      thread_id: thread_id,
+      turn_type: typeof(turn_id),
+      thread_type: typeof(thread_id)
+    )
+
+    {:error, :invalid_ids}
+  end
+
+  defp typeof(v) when is_nil(v), do: "nil"
+  defp typeof(v) when is_binary(v), do: "binary"
+  defp typeof(v), do: inspect(v)
 
   defp fetch_interaction_by_turn_and_thread(turn_id, codex_thread_id) do
     case fetch_thread(codex_thread_id) do

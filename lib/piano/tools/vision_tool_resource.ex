@@ -21,6 +21,7 @@ defmodule Piano.Tools.VisionToolResource do
 
       argument :question, :string do
         allow_nil? false
+
         description "What you want to know about the image (e.g., 'What is shown in this image?', 'Extract the text from this image', 'Describe the diagram')"
       end
 
@@ -79,7 +80,10 @@ defmodule Piano.Tools.VisionToolResource do
       run fn input, _ctx ->
         file_path = input.arguments.file_path
 
-        case VisionClient.analyze(file_path, "Extract all text visible in this image. Return only the extracted text.") do
+        case VisionClient.analyze(
+               file_path,
+               "Extract all text visible in this image. Return only the extracted text."
+             ) do
           {:ok, response} ->
             {:ok,
              %{

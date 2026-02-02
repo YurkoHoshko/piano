@@ -93,5 +93,14 @@ name = "OpenAI (Replay)"
 base_url = "http://host.docker.internal:4000/v1"
 wire_api = "responses"
 
+################################################################################
+# Features Configuration
+################################################################################
+
+[features]
+# Disable built-in view_image tool to force use of MCP vision tools
+# The correct key is view_image_tool (not view_image)
+view_image_tool = false
+
 [mcp_servers.piano]
-url = "http://localhost:4000/mcp"
+url = "http://piano:4000/mcp"

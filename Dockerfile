@@ -61,7 +61,7 @@ RUN curl https://mise.run | sh && \
     cp /root/.local/bin/mise /usr/local/bin/mise
 
 # Install Codex CLI from GitHub release (musl build for glibc compatibility)
-RUN curl -L https://github.com/openai/codex/releases/download/rust-v0.92.0/codex-x86_64-unknown-linux-musl.tar.gz | tar xz -C /usr/local/bin && \
+RUN curl -L https://github.com/openai/codex/releases/download/rust-v0.93.0/codex-x86_64-unknown-linux-musl.tar.gz | tar xz -C /usr/local/bin && \
     mv /usr/local/bin/codex-x86_64-unknown-linux-musl /usr/local/bin/codex
 
 # Set the locale

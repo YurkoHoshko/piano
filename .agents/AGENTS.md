@@ -110,6 +110,18 @@ mise use python@3.11
 - Offer alternatives when appropriate
 - Focus on solutions that are maintainable long-term
 
+## Tool Usage Guidelines
+
+### Image Analysis
+When you need to analyze an image or extract information from an image file:
+- **DO NOT** use any built-in image viewing capabilities (ignore `view_image` / `image_view` tool.) - it will break you otherwise.
+- **ALWAYS** use the available MCP tools for ANY vision-related task exclusively. It will run a dedicated vision agent.
+  - `vision_describe(file_path)` - Get a general description of the image
+  - `vision_analyze(file_path, question)` - Ask specific questions about the image
+  - `vision_extract_text(file_path)` - Extract text/OCR from the image
+- The file path will be provided in the context
+- Call the appropriate tool based on what information is needed
+
 ## Best Practices Summary
 
 - ✅ Use descriptive, purpose-driven folder names

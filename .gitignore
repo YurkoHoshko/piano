@@ -30,3 +30,10 @@ piano-*.tar
 # Codex home (keep config tracked)
 .codex/*
 !.codex/config.toml
+!.codex/skills/*
+
+# AI docs
+docs/ai_docs/codex_schema/*
+
+# BUild artifacts
+infra/services/llama-swap/out/*

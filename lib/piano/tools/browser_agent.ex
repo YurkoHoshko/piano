@@ -315,8 +315,8 @@ defmodule Piano.Tools.BrowserAgent do
 
   @impl true
   def handle_call({:execute_script, script, args}, _from, state) do
-    {result, new_session} = Browser.execute_script(state.session, script, args)
-    new_state = %{state | session: new_session}
+    result = Browser.execute_script(state.session, script, args)
+    new_state = %{state | session: state.session}
     {:reply, {:ok, result}, new_state}
   rescue
     e ->
@@ -366,11 +366,11 @@ defmodule Piano.Tools.BrowserAgent do
     });
     """
 
-    {cookies, new_session} = Browser.execute_script(state.session, script, [])
+    cookies = Browser.execute_script(state.session, script, [])
 
     File.write!(path, Jason.encode!(cookies, pretty: true))
 
-    new_state = %{state | session: new_session, cookies: cookies}
+    new_state = %{state | session: state.session, cookies: cookies}
     {:reply, {:ok, cookies}, new_state}
   rescue
     e ->
@@ -387,8 +387,8 @@ defmodule Piano.Tools.BrowserAgent do
     });
     """
 
-    {cookies, new_session} = Browser.execute_script(state.session, script, [])
-    new_state = %{state | session: new_session, cookies: cookies}
+    cookies = Browser.execute_script(state.session, script, [])
+    new_state = %{state | session: state.session, cookies: cookies}
     {:reply, {:ok, cookies}, new_state}
   rescue
     e ->

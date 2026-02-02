@@ -27,10 +27,33 @@ COPY out/libmtmd.so /usr/local/lib/libmtmd.so
 RUN ldconfig
 
 # Install Python for vLLM support (Qwen3-ASR transcription)
+# Include all X11 and multimedia libraries required by opencv-python
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-venv \
     python3-pip \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    libgomp1 \
+    libxcb1 \
+    libxcb-shm0 \
+    libxcb-xfixes0 \
+    libxcb-render0 \
+    libxcb-util1 \
+    libxcb-keysyms1 \
+    libxcb-icccm4 \
+    libxcb-sync1 \
+    libxcb-xinerama0 \
+    libxcb-xkb1 \
+    libxkbcommon0 \
+    libxkbcommon-x11-0 \
+    libfontconfig1 \
+    libfreetype6 \
+    libpng16-16 \
+    libjpeg-turbo8 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install mise and uv for Python package management

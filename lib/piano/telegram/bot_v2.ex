@@ -84,35 +84,24 @@ defmodule Piano.Telegram.BotV2 do
     answer(context, "Available profiles:\n" <> Enum.join(profiles, "\n"))
   end
 
-  def handle({:command, :profile, _msg}, context) do
-    answer(context, "Current profile: #{CodexConfig.current_profile!()}")
+  def handle({:command, :profile, msg}, context) do
+    profile_str = (msg.text || "") |> String.trim()
+
+    if profile_str == "" do
+      answer(context, "Current profile: #{CodexConfig.current_profile!()}")
+    else
+      do_switch_profile(profile_str, context)
+    end
   end
 
   def handle({:command, :switchprofile, msg}, context) do
     log_inbound(:command, msg, "/switchprofile")
-    # ExGram passes just the argument in msg.text (e.g., "fast" not "/switchprofile fast")
     profile_str = (msg.text || "") |> String.trim()
 
     if profile_str == "" do
       answer(context, "Usage: /switchprofile <name>")
     else
-      available_strings = CodexConfig.profile_names() |> Enum.map(&Atom.to_string/1)
-
-      if profile_str in available_strings do
-        profile = String.to_atom(profile_str)
-        :ok = CodexConfig.set_current_profile!(profile)
-
-        case CodexClient.restart() do
-          :ok ->
-            answer(context, "✅ Switched to #{profile} and restarted Codex.")
-
-          {:error, reason} ->
-            Logger.error("Failed to restart Codex after profile switch: #{inspect(reason)}")
-            answer(context, "✅ Profile set to #{profile}, but restart failed. Run /restartcodex.")
-        end
-      else
-        answer(context, "⚠️ Unknown profile: #{profile_str}\nUse /profiles to see available.")
-      end
+      do_switch_profile(profile_str, context)
     end
   end
 
@@ -449,8 +438,16 @@ defmodule Piano.Telegram.BotV2 do
   defp file_type_hint(:audio), do: "Use voice_transcribe tool to transcribe this audio to text."
 
   defp file_type_hint(:photo),
-    do:
-      "Use vision tools to analyze this image: vision_analyze (ask specific question), vision_describe (general description), or vision_extract_text (OCR)."
+    do: """
+    DO NOT USE image_view/imageView tool  UNDER ANY CIRCUMSTANCE. PROHIBITED. 
+
+    Instead, use these available vision tools:
+    - vision_describe(file_path): Get a general description of the image
+    - vision_analyze(file_path, question): Ask a specific question about the image  
+    - vision_extract_text(file_path): Extract text/OCR from the image
+
+    The image file path is provided above. Call the appropriate tool based on what the user wants to know.
+    """
 
   defp file_type_hint(_), do: "Process this file as appropriate for the user's request."
 
@@ -481,6 +478,26 @@ defmodule Piano.Telegram.BotV2 do
       username: username,
       preview: preview
     )
+  end
+
+  defp do_switch_profile(profile_str, context) do
+    available_strings = CodexConfig.profile_names() |> Enum.map(&Atom.to_string/1)
+
+    if profile_str in available_strings do
+      profile = String.to_atom(profile_str)
+      :ok = CodexConfig.set_current_profile!(profile)
+
+      case CodexClient.restart() do
+        :ok ->
+          answer(context, "✅ Switched to #{profile} and restarted Codex.")
+
+        {:error, reason} ->
+          Logger.error("Failed to restart Codex after profile switch: #{inspect(reason)}")
+          answer(context, "✅ Profile set to #{profile}, but restart failed. Run /restartcodex.")
+      end
+    else
+      answer(context, "⚠️ Unknown profile: #{profile_str}\nUse /profiles to see available.")
+    end
   end
 
   defp map_get(nil, _key), do: nil

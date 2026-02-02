@@ -8,7 +8,7 @@ defmodule Piano.Tools.VisionClient do
   require Logger
 
   @default_base_url "http://llama-swap:8080/v1"
-  @default_model "gemma3"
+  @default_model "qwen3-vl-4b-vllm"
   @default_timeout 240_000
 
   @doc """

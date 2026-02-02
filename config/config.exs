@@ -9,7 +9,7 @@ config :piano, :ash_domains, [Piano.Core, Piano.Domain]
 config :piano, Piano.Codex.Config,
   codex_command: "codex",
   current_profile: :fast,
-  allowed_profiles: [:smart, :fast, :expensive, :replay, :experimental, :gfq, :vision]
+  allowed_profiles: [:smart, :fast, :expensive, :replay, :experimental, :gfq]
 
 config :piano, PianoWeb.Endpoint,
   url: [host: "localhost"],
@@ -66,6 +66,11 @@ config :logger, :default_formatter,
   ]
 
 config :phoenix, :json_library, Jason
+
+# Register text/event-stream MIME type for MCP SSE connections
+config :mime, :types, %{
+  "text/event-stream" => ["sse"]
+}
 
 # Admin token for dashboard access
 config :piano, :admin_token, System.get_env("PIANO_ADMIN_TOKEN", "piano_admin")

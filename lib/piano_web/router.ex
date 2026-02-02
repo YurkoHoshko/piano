@@ -47,9 +47,13 @@ defmodule PianoWeb.Router do
     end
   end
 
+  pipeline :mcp do
+    plug :accepts, ["json", "sse"]
+  end
+
   # MCP (Model Context Protocol) endpoint for AI tools
   scope "/mcp" do
-    pipe_through :api
+    pipe_through :mcp
 
     forward "/", AshAi.Mcp.Router,
       otp_app: :piano,

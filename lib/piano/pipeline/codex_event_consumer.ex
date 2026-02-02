@@ -34,6 +34,11 @@ defmodule Piano.Pipeline.CodexEventConsumer do
     :ok
   end
 
+  def process(%{type: :event, event: :ignored}) do
+    # Silently ignore events marked as :ignored (e.g., token_count, mcp_startup, view_image_tool_call)
+    :ok
+  end
+
   def process(%{type: :event, event: event}) when is_struct(event) do
     # Persist the event and get the associated interaction
     case Persistence.process_event(event) do

@@ -125,8 +125,6 @@ defmodule Piano.Telegram.Handler do
     if is_integer(chat_id) do
       _ = ContextWindow.record(msg, "[File with caption: #{String.slice(prompt, 0, 100)}...]")
 
-      reply_to = TelegramSurface.build_reply_to(chat_id, msg.message_id)
-
       # Include intake path info in the prompt
       full_prompt = """
       #{prompt}
@@ -135,7 +133,9 @@ defmodule Piano.Telegram.Handler do
       All files sent by the user are available in this folder for processing.
       """
 
-      with {:ok, interaction} <- create_interaction(full_prompt, reply_to, image_paths: image_paths),
+      with {:ok, reply_to} <- TelegramSurface.send_placeholder(chat_id, "⏳ Processing file..."),
+           {:ok, interaction} <-
+             create_interaction(full_prompt, reply_to, image_paths: image_paths),
            {:ok, interaction} <- start_turn(interaction) do
         Logger.info("Telegram file message processed",
           chat_id: chat_id,
@@ -184,7 +184,10 @@ defmodule Piano.Telegram.Handler do
 
   defp create_interaction(text, reply_to, opts \\ []) do
     image_paths = Keyword.get(opts, :image_paths, [])
-    Ash.create(Interaction, %{original_message: text, reply_to: reply_to, image_paths: image_paths}, action: :create)
+
+    Ash.create(
+      Interaction,
+      %{original_message: text, reply_to: reply_to, image_paths: image_paths}, action: :create)
   end
 
   defp chat_type(msg) when is_map(msg) do

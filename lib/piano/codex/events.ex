@@ -52,6 +52,8 @@ defmodule Piano.Codex.Events do
 
   alias Piano.Codex.Events
 
+  require Logger
+
   # ============================================================================
   # Item Types
   # ============================================================================
@@ -409,11 +411,14 @@ defmodule Piano.Codex.Events do
 
   defmodule Error do
     @moduledoc "Error notification from the server."
-    defstruct [:message, :codex_error_info, :raw_params]
+    defstruct [:message, :codex_error_info, :turn_id, :thread_id, :will_retry, :raw_params]
 
     @type t :: %__MODULE__{
             message: String.t(),
             codex_error_info: map() | nil,
+            turn_id: String.t() | nil,
+            thread_id: String.t() | nil,
+            will_retry: boolean() | nil,
             raw_params: map()
           }
   end
@@ -517,10 +522,11 @@ defmodule Piano.Codex.Events do
 
       "turn/completed" ->
         status = parse_status(get_in(params, ["turn", "status"]))
+        turn_id = params["turnId"] || get_in(params, ["turn", "id"])
 
         {:ok,
          %TurnCompleted{
-           turn_id: params["turnId"],
+           turn_id: turn_id,
            thread_id: params["threadId"],
            status: status,
            error: get_in(params, ["turn", "error"]),
@@ -710,8 +716,11 @@ defmodule Piano.Codex.Events do
       "error" ->
         {:ok,
          %Error{
-           message: params["message"] || "Unknown error",
+           message: params["message"] || params["error"] || "Unknown error",
            codex_error_info: params["codexErrorInfo"],
+           turn_id: params["turnId"],
+           thread_id: params["threadId"],
+           will_retry: params["willRetry"],
            raw_params: params
          }}
 
@@ -770,6 +779,52 @@ defmodule Piano.Codex.Events do
             "result" => %{"text" => get_in(params, ["msg", "last_agent_message"])}
           }
         })
+
+      # MCP tool call events
+      "codex/event/mcp_tool_call_begin" ->
+        # MCP events use conversationId as turn_id and id is just an index
+        parse_event("item/started", %{
+          "itemId" => get_in(params, ["msg", "call_id"]),
+          "turnId" => params["conversationId"],
+          "threadId" => params["conversationId"],
+          "item" => %{
+            "id" => get_in(params, ["msg", "call_id"]),
+            "type" => "mcpToolCall",
+            "content" => get_in(params, ["msg", "invocation"])
+          }
+        })
+
+      "codex/event/mcp_tool_call_end" ->
+        # MCP events use conversationId as turn_id and id is just an index
+        parse_event("item/completed", %{
+          "itemId" => get_in(params, ["msg", "call_id"]),
+          "turnId" => params["conversationId"],
+          "threadId" => params["conversationId"],
+          "item" => %{
+            "id" => get_in(params, ["msg", "call_id"]),
+            "type" => "mcpToolCall",
+            "content" => get_in(params, ["msg", "result"])
+          }
+        })
+
+      # MCP startup events (info only, no action needed)
+      "codex/event/mcp_startup_update" ->
+        {:ok, :ignored}
+
+      "codex/event/mcp_startup_complete" ->
+        {:ok, :ignored}
+
+      # Token count events (info only, track usage)
+      "codex/event/token_count" ->
+        {:ok, :ignored}
+
+      # View image tool call (Codex internal - not a Piano MCP tool)
+      "codex/event/view_image_tool_call" ->
+        {:ok, :ignored}
+
+      # Stream error events (connection issues, retries)
+      "codex/event/stream_error" ->
+        {:ok, :ignored}
 
       # Unknown event
       _ ->
@@ -912,6 +967,19 @@ defimpl Piano.Transcript.Serializer, for: Piano.Codex.Events.ItemCompleted do
     "#{emoji} **File:** `#{path}` (#{change_type})"
   end
 
+  def to_transcript(%{type: :mcp_tool_call, item: item, result: result}) when is_map(item) do
+    tool = item["tool"] || "unknown"
+    # Extract result content if available
+    result_text = extract_mcp_result_text(result)
+
+    if result_text && result_text != "" do
+      "🔌 **Tool:** `#{tool}`\n#{result_text}"
+    else
+      "🔌 **Tool:** `#{tool}`"
+    end
+  end
+
+  # Fallback for mcp_tool_call without result field
   def to_transcript(%{type: :mcp_tool_call, item: item}) when is_map(item) do
     tool = item["tool"] || "unknown"
     "🔌 **Tool:** `#{tool}`"
@@ -934,4 +1002,28 @@ defimpl Piano.Transcript.Serializer, for: Piano.Codex.Events.ItemCompleted do
   defp extract_content_text([_ | rest]), do: extract_content_text(rest)
   defp extract_content_text(text) when is_binary(text), do: text
   defp extract_content_text(_), do: nil
+
+  # Extract text from MCP tool call result
+  # Handles various result formats from vision tools, etc.
+  defp extract_mcp_result_text(nil), do: nil
+
+  defp extract_mcp_result_text(%{"Ok" => %{"content" => content}}) when is_list(content) do
+    # Extract text from content array
+    result =
+      content
+      |> Enum.filter(&(&1["type"] == "text"))
+      |> Enum.map_join("\n", &(&1["text"] || ""))
+
+    if result == "", do: nil, else: result
+  end
+
+  defp extract_mcp_result_text(%{"Ok" => ok_result}) when is_map(ok_result) do
+    # Try to extract any text field from Ok result
+    ok_result["text"] || ok_result["description"] || ok_result["result"]
+  end
+
+  defp extract_mcp_result_text(%{"text" => text}) when is_binary(text), do: text
+  defp extract_mcp_result_text(%{"description" => desc}) when is_binary(desc), do: desc
+  defp extract_mcp_result_text(result) when is_binary(result), do: result
+  defp extract_mcp_result_text(_), do: nil
 end

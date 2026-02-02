@@ -1,14 +1,11 @@
+# ExUnit stub for Wallaby compatibility in production environments
 if Mix.env() != :test do
   defmodule ExUnit do
     @moduledoc """
     Minimal ExUnit stub for Wallaby compatibility in production.
 
-    Wallaby requires ExUnit for its session management callbacks.
-    This module provides just enough functionality to satisfy Wallaby
-    without including the full test framework in production.
-
-    Note: This module is only defined in non-test environments.
-    In test, the real ExUnit from the standard library is used.
+    This module is only defined in non-test environments to provide
+    just enough functionality to satisfy Wallaby's requirements.
     """
 
     @doc """
