@@ -119,6 +119,7 @@ defmodule Piano.Tools.TranscriptionClient do
 
     with {:ok, file_path, is_temp} <- ensure_local_file(path_or_url),
          {:ok, file_contents} <- File.read(file_path) do
+      # Successfully got file contents, proceed with API call
       try do
         filename = Path.basename(file_path)
 
@@ -177,6 +178,14 @@ defmodule Piano.Tools.TranscriptionClient do
           File.rm(file_path)
         end
       end
+    else
+      {:error, reason} = error ->
+        Logger.error("Transcription file preparation failed",
+          path_or_url: path_or_url,
+          reason: inspect(reason)
+        )
+
+        error
     end
   end
 
