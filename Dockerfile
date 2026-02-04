@@ -111,6 +111,11 @@ COPY --chown=app:app .agents /piano/agents
 
 USER app
 
+# Install mise tools for agent scripts (python, uv)
+RUN cd /piano/agents/github-tools && \
+    mise trust mise.toml && \
+    mise install
+
 # If using an environment that doesn't automatically reap zombie processes,
 # you may want to add tini or another entry point that can do that
 CMD ["/piano/runtime/bin/server"]
