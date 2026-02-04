@@ -117,6 +117,11 @@ defmodule Piano.Transcript.Builder do
     "🔍 **Search:** \"#{query}\""
   end
 
+  defp format_item(%{"type" => "execCommand"} = item) do
+    cmd = item["content"] || item["command"] || ""
+    "⚙️ **Shell:** `#{cmd}`"
+  end
+
   defp format_item(%{"type" => "reasoning"} = item) do
     text = item["text"] || extract_content(item["content"]) || ""
     if text != "", do: "💭 **Reasoning:**\n#{text}"

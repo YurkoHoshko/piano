@@ -85,6 +85,7 @@ defmodule Piano.Codex.Events do
   def map_item_type("commandExecution"), do: :command_execution
   def map_item_type("fileChange"), do: :file_change
   def map_item_type("mcpToolCall"), do: :mcp_tool_call
+  def map_item_type("execCommand"), do: :exec_command
   def map_item_type("webSearch"), do: :web_search
   def map_item_type("collabToolCall"), do: :collab_tool_call
   def map_item_type("imageView"), do: :image_view
@@ -822,6 +823,40 @@ defmodule Piano.Codex.Events do
         "content" => get_in(params, ["msg", "result"])
       }
     })
+  end
+
+  defp do_parse_event("codex/event/exec_command_begin", params) do
+    do_parse_event("item/started", %{
+      "itemId" => get_in(params, ["msg", "call_id"]),
+      "turnId" => params["conversationId"],
+      "threadId" => params["conversationId"],
+      "item" => %{
+        "id" => get_in(params, ["msg", "call_id"]),
+        "type" => "execCommand",
+        "content" => get_in(params, ["msg", "command"])
+      }
+    })
+  end
+
+  defp do_parse_event("codex/event/exec_command_output_delta", _params) do
+    {:ok, :ignored}
+  end
+
+  defp do_parse_event("codex/event/exec_command_end", params) do
+    do_parse_event("item/completed", %{
+      "itemId" => get_in(params, ["msg", "call_id"]),
+      "turnId" => params["conversationId"],
+      "threadId" => params["conversationId"],
+      "item" => %{
+        "id" => get_in(params, ["msg", "call_id"]),
+        "type" => "execCommand",
+        "content" => get_in(params, ["msg", "output"])
+      }
+    })
+  end
+
+  defp do_parse_event("codex/event/error", _params) do
+    {:ok, :ignored}
   end
 
   # Events to ignore

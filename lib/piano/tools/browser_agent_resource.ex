@@ -4,16 +4,28 @@ defmodule Piano.Tools.BrowserAgentResource do
 
   This resource wraps the GenServer-based BrowserAgent to expose
   browser automation as Ash actions that can be called via MCP.
+
+  ## Output Format
+
+  Content extraction actions (visit, get_content) save large outputs to files
+  to prevent context overflow. They return:
+  - `preview`: First ~100 characters of content
+  - `path`: Full path to the saved file containing complete content
+  - `size`: Total character count
+  - `truncated`: Boolean indicating if preview was truncated
+
+  Use the `path` to read the full content when needed via file tools.
   """
 
   use Ash.Resource, domain: nil
 
   alias Piano.Tools.BrowserAgent
+  alias Piano.Tools.FileOutput
 
   actions do
     # Navigation
-    action :visit, :string do
-      description "Navigate browser to a URL"
+    action :visit, :map do
+      description "Navigate browser to a URL. Content is saved to a file - returns preview and file path."
 
       argument :url, :string do
         allow_nil? false
@@ -35,21 +47,40 @@ defmodule Piano.Tools.BrowserAgentResource do
         url = input.arguments.url
         format = input.arguments.format
         take_screenshot = input.arguments.screenshot
+        format_ext = format_to_extension(format)
 
         with {:ok, visited_url} <- BrowserAgent.visit(pid, url),
              {:ok, content} <- BrowserAgent.get_page_content(pid, format) do
-          result = %{url: visited_url, content: content, format: format}
+          # Save content to file
+          case FileOutput.save(content,
+                 format: format_ext,
+                 prefix: "browser_visit",
+                 subdirectory: "browser"
+               ) do
+            {:ok, file_info} ->
+              result = %{
+                url: visited_url,
+                preview: file_info.preview,
+                path: file_info.path,
+                size: file_info.size,
+                truncated: file_info.truncated,
+                format: format
+              }
 
-          # Take screenshot if requested
-          result =
-            if take_screenshot do
-              {:ok, screenshot_path} = BrowserAgent.screenshot(pid)
-              Map.put(result, :screenshot, screenshot_path)
-            else
-              result
-            end
+              # Take screenshot if requested
+              result =
+                if take_screenshot do
+                  {:ok, screenshot_path} = BrowserAgent.screenshot(pid)
+                  Map.put(result, :screenshot, screenshot_path)
+                else
+                  result
+                end
 
-          {:ok, result}
+              {:ok, result}
+
+            {:error, reason} ->
+              {:error, "Failed to save content: #{reason}"}
+          end
         else
           {:error, reason} ->
             {:error, "Browser visit failed: #{reason}"}
@@ -111,7 +142,7 @@ defmodule Piano.Tools.BrowserAgentResource do
 
     # Find elements
     action :find, :map do
-      description "Find elements matching a CSS selector"
+      description "Find elements matching a CSS selector. Results saved to file - returns preview and file path."
 
       argument :selector, :string do
         allow_nil? false
@@ -124,12 +155,31 @@ defmodule Piano.Tools.BrowserAgentResource do
 
         case BrowserAgent.find_elements(pid, selector) do
           {:ok, elements} ->
-            {:ok,
-             %{
-               selector: selector,
-               count: length(elements),
-               elements: elements
-             }}
+            # Save element data as JSON
+            data = %{
+              selector: selector,
+              count: length(elements),
+              elements: elements
+            }
+
+            case FileOutput.save_json(data,
+                   prefix: "browser_find",
+                   subdirectory: "browser"
+                 ) do
+              {:ok, file_info} ->
+                {:ok,
+                 %{
+                   preview: file_info.preview,
+                   path: file_info.path,
+                   size: file_info.size,
+                   truncated: file_info.truncated,
+                   selector: selector,
+                   count: length(elements)
+                 }}
+
+              {:error, reason} ->
+                {:error, "Failed to save results: #{reason}"}
+            end
 
           {:error, reason} ->
             {:error, reason}
@@ -139,7 +189,7 @@ defmodule Piano.Tools.BrowserAgentResource do
 
     # Take screenshot
     action :screenshot, :map do
-      description "Take a screenshot of the current page"
+      description "Take a screenshot of the current page. Returns the file path to the saved image."
 
       run fn _input, _ctx ->
         pid = BrowserAgent
@@ -156,7 +206,7 @@ defmodule Piano.Tools.BrowserAgentResource do
 
     # Get page content
     action :get_content, :map do
-      description "Extract text content from current page"
+      description "Extract text content from current page. Output saved to file - returns preview and file path."
 
       argument :format, :atom do
         description "Content format: :text, :markdown, :html, :structured"
@@ -166,10 +216,29 @@ defmodule Piano.Tools.BrowserAgentResource do
       run fn input, _ctx ->
         pid = BrowserAgent
         format = input.arguments.format
+        format_ext = format_to_extension(format)
 
         case BrowserAgent.get_page_content(pid, format) do
           {:ok, content} ->
-            {:ok, %{content: content, format: format}}
+            # Save to file
+            case FileOutput.save(content,
+                   format: format_ext,
+                   prefix: "browser_content",
+                   subdirectory: "browser"
+                 ) do
+              {:ok, file_info} ->
+                {:ok,
+                 %{
+                   preview: file_info.preview,
+                   path: file_info.path,
+                   size: file_info.size,
+                   truncated: file_info.truncated,
+                   format: format
+                 }}
+
+              {:error, reason} ->
+                {:error, "Failed to save content: #{reason}"}
+            end
 
           {:error, reason} ->
             {:error, reason}
@@ -196,7 +265,7 @@ defmodule Piano.Tools.BrowserAgentResource do
 
     # Execute JavaScript
     action :execute_script, :map do
-      description "Execute JavaScript in the browser"
+      description "Execute JavaScript in the browser. Result saved to file if large - returns preview and file path."
 
       argument :script, :string do
         allow_nil? false
@@ -215,7 +284,34 @@ defmodule Piano.Tools.BrowserAgentResource do
 
         case BrowserAgent.execute_script(pid, script, args) do
           {:ok, result} ->
-            {:ok, %{result: result}}
+            # Convert result to string and save if needed
+            result_str = inspect(result)
+
+            if String.length(result_str) > 200 do
+              # Save large results to file
+              case FileOutput.save(result_str,
+                     format: "txt",
+                     prefix: "browser_script",
+                     subdirectory: "browser"
+                   ) do
+                {:ok, file_info} ->
+                  {:ok,
+                   %{
+                     preview: file_info.preview,
+                     path: file_info.path,
+                     size: file_info.size,
+                     truncated: file_info.truncated,
+                     result_type: "saved_to_file"
+                   }}
+
+                {:error, _reason} ->
+                  # Fallback: return result directly if file save fails
+                  {:ok, %{result: result}}
+              end
+            else
+              # Small results can be returned directly
+              {:ok, %{result: result}}
+            end
 
           {:error, reason} ->
             {:error, reason}
@@ -223,4 +319,11 @@ defmodule Piano.Tools.BrowserAgentResource do
       end
     end
   end
+
+  # Helper function to convert format atom to file extension
+  defp format_to_extension(:text), do: "txt"
+  defp format_to_extension(:markdown), do: "md"
+  defp format_to_extension(:html), do: "html"
+  defp format_to_extension(:structured), do: "json"
+  defp format_to_extension(_), do: "txt"
 end

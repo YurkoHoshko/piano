@@ -24,6 +24,7 @@ defmodule Piano.Core.InteractionItem do
                     :agent_message,
                     :reasoning,
                     :command_execution,
+                    :exec_command,
                     :file_change,
                     :mcp_tool_call,
                     :web_search,

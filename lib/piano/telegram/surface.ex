@@ -409,6 +409,21 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
         display = if tool, do: "tool: #{tool}", else: "tool call"
         {emoji, "#{display}#{status_suffix(params, phase)}", output}
 
+      "execCommand" ->
+        cmd = get_in(item, ["content"]) || get_in(item, ["command"])
+
+        cmd_str =
+          cond do
+            is_list(cmd) -> Enum.join(cmd, " ")
+            is_binary(cmd) -> cmd
+            true -> "command"
+          end
+
+        output = extract_item_output(params)
+        emoji = if phase == :completed, do: "✅", else: "⚙️"
+        preview = truncate_line(cmd_str, @tool_preview_max)
+        {emoji, "shell: #{preview}#{status_suffix(params, phase)}", output}
+
       "webSearch" ->
         query =
           get_in(item, ["query"]) || get_in(item, ["input", "query"]) ||
@@ -650,5 +665,28 @@ defimpl Piano.Surface, for: Piano.Telegram.Surface do
     end
 
     :ok
+  end
+
+  def send_message(surface, message) when is_binary(message) do
+    TelegramSurface.send_message(surface.chat_id, message, parse_mode: "Markdown")
+  end
+
+  def send_file(surface, {:binary, content, filename}, opts) do
+    caption = Keyword.get(opts, :caption)
+    document = {:file_content, content, filename}
+    TelegramSurface.send_document(surface.chat_id, document, caption: caption)
+  end
+
+  def send_file(surface, path, opts) when is_binary(path) do
+    caption = Keyword.get(opts, :caption)
+    filename = Keyword.get(opts, :filename, Path.basename(path))
+
+    if File.exists?(path) do
+      content = File.read!(path)
+      document = {:file_content, content, filename}
+      TelegramSurface.send_document(surface.chat_id, document, caption: caption)
+    else
+      {:error, :file_not_found}
+    end
   end
 end

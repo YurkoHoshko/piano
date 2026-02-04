@@ -96,7 +96,11 @@ defmodule Piano.MixProject do
       {:ex_gram, "~> 0.57"},
 
       # AI / MCP
-      {:ash_ai, github: "ash-project/ash_ai"}
+      {:ash_ai, github: "ash-project/ash_ai"},
+
+      # Background Jobs
+      {:quantum, "~> 3.5"},
+      {:tzdata, "~> 1.1"}
     ]
   end
 

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "llama.cpp": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "llama-server (local)",
+      "options": {
+        "baseURL": "http://localhost:8000/v1"
+      },
+      "models": {
+        "glm-47-flash": {
+          "name": "glm-47-flash",
+          "limit": {
+            "context": 32768,
+            "output": 8192
+          }
+        },
+        "glm-47-flash-q": {
+          "name": "glm-47-flash-q",
+          "limit": {
+            "context": 32768,
+            "output": 8192
+          }
+        },
+        "gpt-oss-20b": {
+          "name": "gpt-oss-20b",
+          "limit": {
+            "context": 32768,
+            "output": 4096
+          }
+        },
+        "gpt-oss-120b": {
+          "name": "gpt-oss-120b",
+          "limit": {
+            "context": 32768,
+            "output": 4096
+          }
+        },
+        "qwen3-coder.gguf": {
+          "name": "qwen3-coder.gguf",
+          "limit": {
+            "context": 32768,
+            "output": 8192
+          }
+        },
+        "nous-coder": {
+          "name": "nous-coder",
+          "limit": {
+            "context": 32768,
+            "output": 8192
+          }
+        },
+        "devstral-small-2-24b-instruct": {
+          "name": "devstral-small-2-24b-instruct",
+          "limit": {
+            "context": 32768,
+            "output": 8192
+          }
+        }
+      }
+    }
+  }
+}

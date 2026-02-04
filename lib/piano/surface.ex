@@ -118,6 +118,43 @@ defprotocol Piano.Surface do
   """
   @spec on_thread_transcript(t(), map(), integer() | nil) :: :ok
   def on_thread_transcript(surface, response, placeholder_id)
+
+  @doc """
+  Send a message to the surface.
+
+  Used to send notifications, updates, or results to the user.
+  The message can be plain text or markdown depending on surface support.
+
+  ## Examples
+
+      Piano.Surface.send_message(surface, "Task completed successfully!")
+      Piano.Surface.send_message(surface, "## Results\n\n- Item 1\n- Item 2")
+  """
+  @spec send_message(t(), String.t()) :: {:ok, term()} | {:error, term()}
+  def send_message(surface, message)
+
+  @doc """
+  Send a file to the surface.
+
+  Used to send files (documents, images, etc.) to the user.
+  The `file` can be:
+  - A binary (file contents)
+  - A path to a file on disk
+  - A tuple `{:binary, binary, filename}` for sending binary with a filename
+
+  Options:
+  - `:filename` - Override the filename for display
+  - `:caption` - Optional caption/description for the file
+  - `:mime_type` - MIME type hint
+
+  ## Examples
+
+      Piano.Surface.send_file(surface, "/path/to/file.pdf")
+      Piano.Surface.send_file(surface, {:binary, content, "report.txt"}, caption: "Generated report")
+  """
+  @spec send_file(t(), binary() | String.t() | {:binary, binary(), String.t()}, keyword()) ::
+          {:ok, term()} | {:error, term()}
+  def send_file(surface, file, opts \\ [])
 end
 
 defimpl Piano.Surface, for: Any do
@@ -134,4 +171,6 @@ defimpl Piano.Surface, for: Any do
   def on_account_read(_surface, _response), do: :ok
   def on_account_logout(_surface, _response), do: :ok
   def on_thread_transcript(_surface, _response, _placeholder_id), do: :ok
+  def send_message(_surface, _message), do: {:ok, :noop}
+  def send_file(_surface, _file, _opts), do: {:ok, :noop}
 end

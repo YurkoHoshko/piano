@@ -37,6 +37,11 @@ defmodule Piano.Core.Thread do
       allow_nil? true
     end
 
+    belongs_to :surface, Piano.Core.Surface do
+      allow_nil? true
+      description "The surface this thread belongs to"
+    end
+
     has_many :interactions, Piano.Core.Interaction
   end
 
@@ -45,7 +50,7 @@ defmodule Piano.Core.Thread do
 
     create :create do
       primary? true
-      accept [:codex_thread_id, :reply_to]
+      accept [:codex_thread_id, :reply_to, :surface_id]
 
       argument :agent_id, :uuid, allow_nil?: true
 

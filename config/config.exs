@@ -89,6 +89,16 @@ config :piano, :browser_agent_enabled, System.get_env("BROWSER_AGENT_ENABLED", "
 config :piano, :browser_agent_driver, :chrome
 config :piano, :browser_agent_config_path, System.get_env("BROWSER_AGENT_CONFIG_PATH")
 
+# Quantum scheduler for background jobs
+config :piano, Piano.Scheduler,
+  jobs: [
+    # Every minute, check for background tasks with +background tag
+    {"* * * * *", {Piano.Background.TaskWarrior, :process_background_tasks, []}}
+  ]
+
+# Timezone data provider for Quantum
+config :elixir, :time_zone_database, Tzdata.TimeZoneDatabase
+
 # Wallaby configuration (for browser agent)
 config :wallaby,
   chromedriver: [

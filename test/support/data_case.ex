@@ -17,10 +17,13 @@ defmodule Piano.DataCase do
   end
 
   def setup_sandbox(_tags) do
-    Piano.Repo.query!("DELETE FROM messages")
-    Piano.Repo.query!("DELETE FROM telegram_sessions")
-    Piano.Repo.query!("DELETE FROM threads")
-    Piano.Repo.query!("DELETE FROM agents")
+    Piano.Repo.query!("DELETE FROM interaction_items")
+    Piano.Repo.query!("DELETE FROM interactions")
+    Piano.Repo.query!("DELETE FROM threads_v2")
+    Piano.Repo.query!("DELETE FROM users_surfaces")
+    Piano.Repo.query!("DELETE FROM users")
+    Piano.Repo.query!("DELETE FROM surfaces")
+    Piano.Repo.query!("DELETE FROM agents_v2")
     :ok
   end
 end

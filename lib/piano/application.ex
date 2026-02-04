@@ -25,10 +25,11 @@ defmodule Piano.Application do
         Piano.Repo,
         {DNSCluster, query: Application.get_env(:piano, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Piano.PubSub},
+        Piano.Mock.Registry,
         Piano.Codex.Client,
         Piano.Pipeline.CodexEventPipeline,
         PianoWeb.Endpoint
-      ] ++ browser_agent_children() ++ telegram_children()
+      ] ++ browser_agent_children() ++ telegram_children() ++ scheduler_children()
 
     opts = [strategy: :one_for_one, name: Piano.Supervisor]
 
@@ -76,6 +77,16 @@ defmodule Piano.Application do
     else
       Logger.info("Telegram bot disabled (set TELEGRAM_BOT_TOKEN to enable)")
 
+      []
+    end
+  end
+
+  defp scheduler_children do
+    if Application.get_env(:piano, :scheduler_enabled, true) do
+      Logger.info("Quantum scheduler enabled")
+      [Piano.Scheduler]
+    else
+      Logger.info("Quantum scheduler disabled")
       []
     end
   end

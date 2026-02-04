@@ -328,6 +328,22 @@ defmodule Piano.Telegram.Transcript do
     end
   end
 
+  # Exec command (shell execution)
+  defp format_item(%{"type" => "execCommand"} = item) do
+    cmd = item["content"] || item["command"] || ""
+    output = item["output"]
+
+    output_section =
+      if output && output != "" do
+        "\n\nOutput:\n```\n#{truncate(output, 1000)}\n```"
+      else
+        ""
+      end
+
+    "**Shell:** `#{cmd}`#{output_section}"
+    |> String.trim()
+  end
+
   # Collab tool calls
   defp format_item(%{"type" => "collabToolCall"} = item) do
     tool = item["tool"] || item["name"] || "unknown"

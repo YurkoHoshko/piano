@@ -4,16 +4,27 @@ defmodule Piano.Tools.WebCleanerResource do
 
   This resource wraps the WebCleaner module to expose web fetching
   and content extraction as Ash actions that can be called via MCP.
+
+  ## Output Format
+
+  All actions return large content as file references to prevent context overflow:
+  - `preview`: First ~100 characters of content
+  - `path`: Full path to the saved file containing complete content
+  - `size`: Total character count
+  - `truncated`: Boolean indicating if preview was truncated
+
+  Use the `path` to read the full content when needed via file tools.
   """
 
   use Ash.Resource, domain: nil
 
   alias Piano.Tools.WebCleaner
+  alias Piano.Tools.FileOutput
 
   actions do
     # Fetch and clean webpage
     action :fetch, :map do
-      description "Fetch a webpage and extract clean, LLM-friendly text content"
+      description "Fetch a webpage and extract clean, LLM-friendly text content. Output saved to file - returns preview and file path."
 
       argument :url, :string do
         allow_nil? false
@@ -28,16 +39,30 @@ defmodule Piano.Tools.WebCleanerResource do
       run fn input, _ctx ->
         url = input.arguments.url
         format = input.arguments.format
+        format_ext = format_to_extension(format)
 
         case WebCleaner.fetch_and_clean(url, format: format) do
           {:ok, content} ->
-            {:ok,
-             %{
-               content: content,
-               format: format,
-               url: url,
-               length: String.length(content)
-             }}
+            # Save to file and return preview + path
+            case FileOutput.save(content,
+                   format: format_ext,
+                   prefix: "webfetch",
+                   subdirectory: "web"
+                 ) do
+              {:ok, file_info} ->
+                {:ok,
+                 %{
+                   preview: file_info.preview,
+                   path: file_info.path,
+                   size: file_info.size,
+                   truncated: file_info.truncated,
+                   format: format,
+                   url: url
+                 }}
+
+              {:error, reason} ->
+                {:error, "Failed to save output: #{reason}"}
+            end
 
           {:error, reason} ->
             {:error, "Failed to fetch URL: #{reason}"}
@@ -47,7 +72,7 @@ defmodule Piano.Tools.WebCleanerResource do
 
     # Quick text extraction
     action :extract_text, :map do
-      description "Quickly extract text content from a URL (text format only)"
+      description "Quickly extract text content from a URL. Output saved to file - returns preview and file path."
 
       argument :url, :string do
         allow_nil? false
@@ -59,22 +84,26 @@ defmodule Piano.Tools.WebCleanerResource do
 
         case WebCleaner.fetch_and_clean(url, format: :text) do
           {:ok, content} ->
-            # Truncate if too long for LLM context
-            truncated =
-              if String.length(content) > 10_000 do
-                String.slice(content, 0, 10_000) <> "\n\n[Content truncated...]"
-              else
-                content
-              end
+            # Save to file and return preview + path
+            case FileOutput.save(content,
+                   format: "txt",
+                   prefix: "webfetch_text",
+                   subdirectory: "web"
+                 ) do
+              {:ok, file_info} ->
+                {:ok,
+                 %{
+                   preview: file_info.preview,
+                   path: file_info.path,
+                   size: file_info.size,
+                   truncated: file_info.truncated,
+                   format: :text,
+                   url: url
+                 }}
 
-            {:ok,
-             %{
-               content: truncated,
-               format: :text,
-               url: url,
-               original_length: String.length(content),
-               truncated: String.length(content) > 10_000
-             }}
+              {:error, reason} ->
+                {:error, "Failed to save output: #{reason}"}
+            end
 
           {:error, reason} ->
             {:error, "Failed to extract text: #{reason}"}
@@ -84,7 +113,7 @@ defmodule Piano.Tools.WebCleanerResource do
 
     # Extract markdown
     action :extract_markdown, :map do
-      description "Extract content as markdown from a URL"
+      description "Extract content as markdown from a URL. Output saved to file - returns preview and file path."
 
       argument :url, :string do
         allow_nil? false
@@ -96,13 +125,26 @@ defmodule Piano.Tools.WebCleanerResource do
 
         case WebCleaner.fetch_and_clean(url, format: :markdown) do
           {:ok, content} ->
-            {:ok,
-             %{
-               content: content,
-               format: :markdown,
-               url: url,
-               length: String.length(content)
-             }}
+            # Save to file and return preview + path
+            case FileOutput.save(content,
+                   format: "md",
+                   prefix: "webfetch_md",
+                   subdirectory: "web"
+                 ) do
+              {:ok, file_info} ->
+                {:ok,
+                 %{
+                   preview: file_info.preview,
+                   path: file_info.path,
+                   size: file_info.size,
+                   truncated: file_info.truncated,
+                   format: :markdown,
+                   url: url
+                 }}
+
+              {:error, reason} ->
+                {:error, "Failed to save output: #{reason}"}
+            end
 
           {:error, reason} ->
             {:error, "Failed to extract markdown: #{reason}"}
@@ -112,7 +154,7 @@ defmodule Piano.Tools.WebCleanerResource do
 
     # Structured extraction (title, headings, links, etc.)
     action :extract_structured, :map do
-      description "Extract structured content (title, headings, links, paragraphs)"
+      description "Extract structured content (title, headings, links, paragraphs). Output saved as JSON file - returns preview and file path."
 
       argument :url, :string do
         allow_nil? false
@@ -128,7 +170,27 @@ defmodule Piano.Tools.WebCleanerResource do
             # Then parse it for structured data
             case WebCleaner.clean(html, :structured) do
               {:ok, structured} ->
-                {:ok, Map.merge(structured, %{url: url, format: :structured})}
+                # Save structured data as JSON
+                data = Map.merge(structured, %{url: url, format: :structured})
+
+                case FileOutput.save_json(data,
+                       prefix: "webfetch_structured",
+                       subdirectory: "web"
+                     ) do
+                  {:ok, file_info} ->
+                    {:ok,
+                     %{
+                       preview: file_info.preview,
+                       path: file_info.path,
+                       size: file_info.size,
+                       truncated: file_info.truncated,
+                       format: :structured,
+                       url: url
+                     }}
+
+                  {:error, reason} ->
+                    {:error, "Failed to save output: #{reason}"}
+                end
 
               {:error, reason} ->
                 {:error, "Failed to parse content: #{reason}"}
@@ -140,4 +202,10 @@ defmodule Piano.Tools.WebCleanerResource do
       end
     end
   end
+
+  # Helper function to convert format atom to file extension
+  defp format_to_extension(:text), do: "txt"
+  defp format_to_extension(:markdown), do: "md"
+  defp format_to_extension(:html), do: "html"
+  defp format_to_extension(_), do: "txt"
 end

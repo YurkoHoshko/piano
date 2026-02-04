@@ -1,0 +1,15 @@
+[project]
+name = "github-tools"
+version = "0.1.0"
+description = "GitHub API automation scripts for agent use"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.31.0",
+    "typer>=0.9.0",
+    "python-dateutil>=2.8.0",
+]
+
+[project.scripts]
+starred-repos = "starred_repos:main"
+repo-prs = "repo_prs:main"

@@ -35,5 +35,10 @@ piano-*.tar
 # AI docs
 docs/ai_docs/codex_schema/*
 
+# Agent outputs
+.agents/.task_data/
+.agents/mcp-outputs/browser/browser_visit_*
+.agents/mcp-outputs/web/webfetch*
+
 # BUild artifacts
 infra/services/llama-swap/out/*

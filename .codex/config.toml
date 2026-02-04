@@ -21,6 +21,8 @@ sandbox_mode = "workspace-write"
 [sandbox_workspace_write]
 # Allow outbound network access inside the sandbox
 network_access = true
+# Additional writable directories outside workspace
+writable_roots = ["/data"]
 
 ################################################################################
 # Projects (trust levels)

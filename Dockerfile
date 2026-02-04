@@ -54,6 +54,7 @@ RUN apt-get update -y && \
     libstdc++6 openssl libncurses5 locales ca-certificates curl git sudo \
     chromium chromium-driver \
     fonts-liberation fonts-noto-color-emoji fonts-dejavu fontconfig \
+    taskwarrior \
   && apt-get clean && rm -f /var/lib/apt/lists/*_*
 
 # Install mise for runtime version management
@@ -76,7 +77,11 @@ WORKDIR /piano/runtime
 # Create a non-privileged user to run the app with passwordless sudo
 RUN useradd --create-home app && \
     echo "app ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-RUN mkdir -p /data /piano/runtime /piano/agents && chown -R app:app /data /piano
+RUN mkdir -p /data /data/taskwarrior /piano/runtime /piano/agents && chown -R app:app /data /piano
+
+# Create taskwarrior config
+RUN echo "data.location=/data/taskwarrior" > /home/app/.taskrc && \
+    chown app:app /home/app/.taskrc
 
 # Create mise directories with proper ownership for the app user
 RUN mkdir -p /home/app/.cache/mise /home/app/.local/share/mise /home/app/.local/state/mise && \
@@ -91,6 +96,7 @@ ENV PATH="/home/app/.local/share/mise/shims:$PATH"
 ENV MIX_ENV="prod"
 ENV DATABASE_PATH="/data/piano.db"
 ENV CODEX_HOME="/piano/agents/.codex"
+ENV TASKDATA="/data/taskwarrior"
 
 # Browser agent configuration
 ENV BROWSER_AGENT_ENABLED="false"
