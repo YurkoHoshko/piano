@@ -107,7 +107,7 @@ ENV CHROME_BIN="/usr/bin/chromium"
 # Copy the release from builder
 COPY --from=builder --chown=app:app /piano/runtime/_build/${MIX_ENV}/rel/piano ./
 COPY --chown=app:app .codex /piano/agents/.codex
-COPY --chown=app:app .agents/AGENTS.md /piano/agents/AGENTS.md
+COPY --chown=app:app .agents /piano/agents
 
 USER app
 
