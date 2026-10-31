@@ -1,0 +1,21 @@
+Qwen3.6 35B A3B on ik_llama.cpp
+
+Profile: qwen36-ik.json
+Install: nu infra/llama-swap/add-qwen36-ik.nu --apply
+Omit --apply to produce candidates and private backups without changing live files.
+Use --config, --pi-models, and --output to test against alternate paths.
+
+Requires the consolidated inference image with /usr/local/bin/run-ik-llama,
+the existing Qwen3.6 UD-Q4_K_XL GGUF mount, and llama-swap's matrix router.
+The route has 32K context, one slot, and exclusive use of both GPUs. The Pi entry
+uses the existing llama_swap provider/auth configuration and leaves the default
+model unchanged. Provider selection is llama_swap/qwen36-35b-a3b-ik.
+
+The installer preserves all other routes, model entries, and provider settings.
+It adds qwen36ik to the routing matrix with its own exclusive set. Candidates
+are validated by the running llama-swap before the live files are written.
+The service watches config changes, so no image rebuild or restart is required.
+
+Validate with /v1/models, a chat completion, and a Pi read-tool round trip.
+The earlier 88 tok/s benchmark used a temporary 2K-context server; do not claim
+that result as a fresh measurement of this persistent 32K route.
